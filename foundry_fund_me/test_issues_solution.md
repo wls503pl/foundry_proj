@@ -6,12 +6,7 @@
 mkdir foundry_fund_me && cd foundry_fund_me
 forge init
 forge test  # Verify default project works
-```
-
-Delete Foundry's auto-generated files:
-
-```bash
-rm src/*.sol script/*.sol test/*.sol
+rm src/*.sol script/*.sol test/*.sol  # Clean auto-generated files
 ```
 
 ## 2. Create Contracts
@@ -20,20 +15,12 @@ Create **FundMe.sol** and **PriceConverter.sol** in `src/` directory.
 
 ## 3. Solve Compilation Errors
 
-Run `forge compile` and you'll encounter import errors:
-
-![forge_compiling_errors.png](./img/test_issues_solution/forge_compiling_errors.png)
+Run `forge compile` and you'll encounter import errors.
 
 **Solution**: Install Chainlink dependencies
 
 ```bash
 forge install smartcontractkit/chainlink-brownie-contracts@1.3.0
-```
-
-The missing file path:
-
-```
-lib/chainlink-brownie-contracts/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol
 ```
 
 **Configure remappings** in `foundry.toml`:
@@ -42,87 +29,34 @@ lib/chainlink-brownie-contracts/contracts/src/v0.8/shared/interfaces/AggregatorV
 remappings = ["@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/"]
 ```
 
-Now `forge compile` should pass.
-
 ## 4. Importance of Testing
 
-> **Key Points**:
->
-> -   Deploying smart contracts without tests will be rejected in audits
-> -   No tests = immature code
-> -   Writing excellent tests differentiates great developers from mediocre ones
+> **Key Points**: Deploying smart contracts without tests will be rejected in audits. Writing excellent tests differentiates great developers from mediocre ones.
 
 ## 5. Write Tests
 
-Create **FundMeTest.t.sol** in `test/`:
-
-```solidity
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.18;
-
-import {Test, console} from "forge-std/Test.sol";
-import {FundMe} from "../src/FundMe.sol";
-
-contract FundMeTest is Test {
-    FundMe fundMe;
-
-    function setUp() external {
-        fundMe = new FundMe();
-    }
-
-    function testMinimumDollarIsFive() public {
-        assertEq(fundMe.MINIMUM_USD(), 5e18);
-    }
-
-    function testOwnerIsMsgSender() public {
-        assertEq(fundMe.i_owner(), address(this));
-    }
-
-    function testPriceFeedVersionIsAccurate() public {
-        uint256 version = fundMe.getVersion();
-        assertEq(version, 4);
-    }
-}
-```
-
-Run tests with visibility flag:
+Create **FundMeTest.t.sol** in `test/`. Run tests:
 
 ```bash
 forge test -vv
 ```
 
-![vv_show.png](./img/test_issues_solution/vv_show.png)
-
 ## 6. Understanding EVM Revert Error
 
-The `testPriceFeedVersionIsAccurate()` test fails:
+The `testPriceFeedVersionIsAccurate()` test fails with EVM revert.
 
-![evm_revert_error.png](./img/test_issues_solution/evm_revert_error.png)
-
-Check details with `-vvv`:
-
-![vvv_show.png](./img/test_issues_solution/vvv_show.png)
-
-**Root Cause**: When running `forge test` without specifying an RPC URL, Foundry spins up a temporary blank Anvil chain and deletes it after testing. The hardcoded Chainlink price feed address doesn't exist on this blank chain.
+**Root Cause**: Foundry spins up a blank Anvil chain for testing. The hardcoded Chainlink price feed address doesn't exist on this blank chain.
 
 **Solution**: Fork a real network
 
-Create `.env`:
-
 ```bash
+# Create .env
 SEPOLIA_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY
-```
 
-Load and run:
-
-```bash
+# Run tests
 source .env
 forge test -vvv --fork-url $SEPOLIA_RPC_URL
 ```
-
-Test now passes:
-
-![run_test_specified_chain.png](./img/test_issues_solution/run_test_specified_chain.png)
 
 ## 7. Four Types of Tests
 
@@ -133,40 +67,35 @@ Test now passes:
 
 ## 8. Making Contracts Modular and Chain-Agnostic
 
-### Problem with Hardcoded Addresses
+### Problem
 
-The initial contract implementation hardcodes the Chainlink price feed address for Sepolia network, making it deployable only to Sepolia. This lack of modularity prevents deployment to other networks like Ethereum mainnet, Polygon, or local Anvil chains.
+The initial implementation hardcodes the Chainlink price feed address for Sepolia, preventing deployment to other networks.
 
-### Solution: Constructor-Based Configuration
+### Solution
 
-To make the contract modular and deployable across different chains, we refactor it to accept the price feed address as a constructor parameter. This allows us to specify the appropriate address for each network at deployment time.
+Refactor to accept the price feed address as a constructor parameter.
 
 ### Key Changes
 
-#### 8.1 FundMe Contract Refactoring
+#### 8.1 FundMe Contract
 
-**Add state variable for price feed:**
+Add state variable and modify constructor:
 
 ```solidity
 AggregatorV3Interface public s_priceFeed;
-```
 
-**Modify constructor to accept address:**
-
-```solidity
 constructor(address priceFeed) {
     i_owner = msg.sender;
     s_priceFeed = AggregatorV3Interface(priceFeed);
 }
 ```
 
-**Update functions to use instance variable:**
+Update functions to use `s_priceFeed`:
 
 ```solidity
 function fund() public payable {
-    require(msg.value.getConversionRate(s_priceFeed) >= MINIMUM_USD, "You need to spend more ETH!");
-    addressToAmountFunded[msg.sender] += msg.value;
-    funders.push(msg.sender);
+    require(msg.value.getConversionRate(s_priceFeed) >= MINIMUM_USD, "...");
+    // ...
 }
 
 function getVersion() public view returns (uint256) {
@@ -174,9 +103,9 @@ function getVersion() public view returns (uint256) {
 }
 ```
 
-#### 8.2 PriceConverter Library Updates
+#### 8.2 PriceConverter Library
 
-**Pass price feed as parameter to functions:**
+Pass price feed as parameter:
 
 ```solidity
 function getPrice(AggregatorV3Interface priceFeed) internal view returns (uint256) {
@@ -184,19 +113,16 @@ function getPrice(AggregatorV3Interface priceFeed) internal view returns (uint25
     return uint256(answer * 10000000000);
 }
 
-function getConversionRate(
-    uint256 ethAmount,
-    AggregatorV3Interface priceFeed
-) internal view returns (uint256) {
+function getConversionRate(uint256 ethAmount, AggregatorV3Interface priceFeed)
+    internal view returns (uint256) {
     uint256 ethPrice = getPrice(priceFeed);
-    uint256 ethAmountInUsd = (ethPrice * ethAmount) / 1000000000000000000;
-    return ethAmountInUsd;
+    // ...
 }
 ```
 
-#### 8.3 Deployment Script Enhancement
+#### 8.3 Deployment Script
 
-**Update DeployFundMe.s.sol:**
+Initially still hardcoded:
 
 ```solidity
 function run() external returns (FundMe) {
@@ -207,45 +133,132 @@ function run() external returns (FundMe) {
 }
 ```
 
-The deployment script now:
-
--   Returns the deployed `FundMe` instance for testing purposes
--   Passes the price feed address during contract instantiation
--   Can be easily modified to use different addresses for different networks
+This accepts constructor parameters but the address is still hardcoded. We need a configuration management system.
 
 #### 8.4 Test File Updates
 
-**Update FundMeTest.t.sol:**
+Update `setUp()` to use deployment script:
 
 ```solidity
 import {DeployFundMe} from "../script/DeployFundMe.s.sol";
 
-contract FundMeTest is Test {
-    FundMe fundMe;
-
-    function setUp() external {
-        DeployFundMe deployFundMe = new DeployFundMe();
-        fundMe = deployFundMe.run();
-    }
-
-    function testOwnerIsMsgSender() public {
-        assertEq(fundMe.i_owner(), msg.sender);
-    }
-
-    // Other tests remain the same
+function setUp() external {
+    DeployFundMe deployFundMe = new DeployFundMe();
+    fundMe = deployFundMe.run();
 }
 ```
 
-**Key test changes:**
+Update owner assertion:
 
--   Tests now use the deployment script instead of directly instantiating `FundMe`
--   Owner assertion updated from `address(this)` to `msg.sender` to reflect proper deployment flow
--   This approach ensures tests mirror actual deployment behavior
+```solidity
+function testOwnerIsMsgSender() public {
+    assertEq(fundMe.i_owner(), msg.sender);  // Changed from address(this)
+}
+```
 
-### Benefits of This Refactoring
+## 9. Implementing HelperConfig for Multi-Chain Deployment
 
-1. **Multi-chain Support**: Can deploy to any network by providing the correct price feed address
-2. **Better Testing**: Can test on local Anvil chains with mock price feeds
-3. **Cleaner Architecture**: Separation of concerns between contract logic and network configuration
-4. **Maintainability**: Easy to update addresses without modifying core contract code
-5. **Reusability**: Same contract code works across all EVM-compatible chains
+### The Problem
+
+Even with constructor parameters, our deployment script still hardcodes addresses. We need automatic network detection.
+
+### 9.1 Create HelperConfig
+
+Create `script/HelperConfig.s.sol`:
+
+```solidity
+contract HelperConfig is Script {
+    struct NetworkConfig {
+        address priceFeed;
+    }
+
+    NetworkConfig public activeNetworkConfig;
+
+    constructor() {
+        if (block.chainid == 11155111) {
+            activeNetworkConfig = getSepoliaEthConfig();
+        } else if (block.chainid == 1) {
+            activeNetworkConfig = getMainnetEthConfig();
+        } else {
+            activeNetworkConfig = getAnvilEthConfig();
+        }
+    }
+
+    function getSepoliaEthConfig() public pure returns (NetworkConfig memory) {
+        return NetworkConfig({
+            priceFeed: 0x694AA1769357215DE4FAC081bf1f309aDC325306
+        });
+    }
+
+    function getMainnetEthConfig() public pure returns (NetworkConfig memory) {
+        return NetworkConfig({
+            priceFeed: 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419
+        });
+    }
+
+    function getAnvilEthConfig() public pure returns (NetworkConfig memory) {
+        return NetworkConfig({priceFeed: address(0)});  // Placeholder
+    }
+}
+```
+
+**Key Design Points:**
+
+-   **Struct**: Groups network-specific addresses
+-   **Auto-detection**: Uses `block.chainid` to determine network
+-   **Public variable**: `activeNetworkConfig` gets auto-generated getter function
+
+### 9.2 Update DeployFundMe
+
+```solidity
+import {HelperConfig} from "./HelperConfig.s.sol";
+
+function run() external returns (FundMe) {
+    // Before startBroadcast -> No gas cost
+    HelperConfig helperConfig = new HelperConfig();
+    address ethUsdPriceFeed = helperConfig.activeNetworkConfig();
+
+    vm.startBroadcast();
+    FundMe fundMe = new FundMe(ethUsdPriceFeed);
+    vm.stopBroadcast();
+    return fundMe;
+}
+```
+
+### 9.3 Understanding Auto-Getter
+
+When you declare:
+
+```solidity
+NetworkConfig public activeNetworkConfig;
+```
+
+Solidity auto-generates:
+
+```solidity
+function activeNetworkConfig() public view returns (NetworkConfig memory)
+```
+
+That's why you can call `helperConfig.activeNetworkConfig()` with parentheses.
+
+**Note**: The code `address ethUsdPriceFeed = helperConfig.activeNetworkConfig();` works due to Solidity's implicit conversion when struct has one field. For clarity and future-proofing, using `.priceFeed` explicitly is recommended.
+
+### 9.4 Deployment Examples
+
+```bash
+# Deploy to Sepolia - auto-detects chainid 11155111
+forge script script/DeployFundMe.s.sol --rpc-url $SEPOLIA_RPC_URL --broadcast
+
+# Deploy to Mainnet - auto-detects chainid 1
+forge script script/DeployFundMe.s.sol --rpc-url $MAINNET_RPC_URL --broadcast
+
+# Local tests - uses Anvil config
+forge test
+```
+
+### Benefits
+
+-   Zero manual configuration per deployment
+-   Single source of truth for addresses
+-   Easy to extend with new networks
+-   Same script works across all environments
