@@ -130,3 +130,122 @@ Test now passes:
 -   **Integration**: Testing how code works with other parts
 -   **Forked**: Testing code on a simulated real environment
 -   **Staging**: Testing code in a real environment (not production)
+
+## 8. Making Contracts Modular and Chain-Agnostic
+
+### Problem with Hardcoded Addresses
+
+The initial contract implementation hardcodes the Chainlink price feed address for Sepolia network, making it deployable only to Sepolia. This lack of modularity prevents deployment to other networks like Ethereum mainnet, Polygon, or local Anvil chains.
+
+### Solution: Constructor-Based Configuration
+
+To make the contract modular and deployable across different chains, we refactor it to accept the price feed address as a constructor parameter. This allows us to specify the appropriate address for each network at deployment time.
+
+### Key Changes
+
+#### 8.1 FundMe Contract Refactoring
+
+**Add state variable for price feed:**
+
+```solidity
+AggregatorV3Interface public s_priceFeed;
+```
+
+**Modify constructor to accept address:**
+
+```solidity
+constructor(address priceFeed) {
+    i_owner = msg.sender;
+    s_priceFeed = AggregatorV3Interface(priceFeed);
+}
+```
+
+**Update functions to use instance variable:**
+
+```solidity
+function fund() public payable {
+    require(msg.value.getConversionRate(s_priceFeed) >= MINIMUM_USD, "You need to spend more ETH!");
+    addressToAmountFunded[msg.sender] += msg.value;
+    funders.push(msg.sender);
+}
+
+function getVersion() public view returns (uint256) {
+    return s_priceFeed.version();
+}
+```
+
+#### 8.2 PriceConverter Library Updates
+
+**Pass price feed as parameter to functions:**
+
+```solidity
+function getPrice(AggregatorV3Interface priceFeed) internal view returns (uint256) {
+    (, int256 answer, , , ) = priceFeed.latestRoundData();
+    return uint256(answer * 10000000000);
+}
+
+function getConversionRate(
+    uint256 ethAmount,
+    AggregatorV3Interface priceFeed
+) internal view returns (uint256) {
+    uint256 ethPrice = getPrice(priceFeed);
+    uint256 ethAmountInUsd = (ethPrice * ethAmount) / 1000000000000000000;
+    return ethAmountInUsd;
+}
+```
+
+#### 8.3 Deployment Script Enhancement
+
+**Update DeployFundMe.s.sol:**
+
+```solidity
+function run() external returns (FundMe) {
+    vm.startBroadcast();
+    FundMe fundMe = new FundMe(0x694AA1769357215DE4FAC081bf1f309aDC325306);
+    vm.stopBroadcast();
+    return fundMe;
+}
+```
+
+The deployment script now:
+
+-   Returns the deployed `FundMe` instance for testing purposes
+-   Passes the price feed address during contract instantiation
+-   Can be easily modified to use different addresses for different networks
+
+#### 8.4 Test File Updates
+
+**Update FundMeTest.t.sol:**
+
+```solidity
+import {DeployFundMe} from "../script/DeployFundMe.s.sol";
+
+contract FundMeTest is Test {
+    FundMe fundMe;
+
+    function setUp() external {
+        DeployFundMe deployFundMe = new DeployFundMe();
+        fundMe = deployFundMe.run();
+    }
+
+    function testOwnerIsMsgSender() public {
+        assertEq(fundMe.i_owner(), msg.sender);
+    }
+
+    // Other tests remain the same
+}
+```
+
+**Key test changes:**
+
+-   Tests now use the deployment script instead of directly instantiating `FundMe`
+-   Owner assertion updated from `address(this)` to `msg.sender` to reflect proper deployment flow
+-   This approach ensures tests mirror actual deployment behavior
+
+### Benefits of This Refactoring
+
+1. **Multi-chain Support**: Can deploy to any network by providing the correct price feed address
+2. **Better Testing**: Can test on local Anvil chains with mock price feeds
+3. **Cleaner Architecture**: Separation of concerns between contract logic and network configuration
+4. **Maintainability**: Easy to update addresses without modifying core contract code
+5. **Reusability**: Same contract code works across all EVM-compatible chains
