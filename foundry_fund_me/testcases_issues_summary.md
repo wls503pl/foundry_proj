@@ -60,17 +60,19 @@ forge test -vvv --fork-url $SEPOLIA_RPC_URL
 
 ## 7. Four Types of Tests
 
-- **Unit**: Testing a specific part of code
-- **Integration**: Testing how code works with other parts
-- **Forked**: Testing code on a simulated real environment
-- **Staging**: Testing code in a real environment (not production)
+-   **Unit**: Testing a specific part of code
+-   **Integration**: Testing how code works with other parts
+-   **Forked**: Testing code on a simulated real environment
+-   **Staging**: Testing code in a real environment (not production)
 
 ## 8. Making Contracts Modular and Chain-Agnostic
 
 ### Problem
+
 The initial implementation hardcodes the Chainlink price feed address for Sepolia, preventing deployment to other networks.
 
 ### Solution
+
 Refactor to accept the price feed address as a constructor parameter.
 
 ### Key Changes
@@ -111,7 +113,7 @@ function getPrice(AggregatorV3Interface priceFeed) internal view returns (uint25
     return uint256(answer * 10000000000);
 }
 
-function getConversionRate(uint256 ethAmount, AggregatorV3Interface priceFeed) 
+function getConversionRate(uint256 ethAmount, AggregatorV3Interface priceFeed)
     internal view returns (uint256) {
     uint256 ethPrice = getPrice(priceFeed);
     // ...
@@ -157,6 +159,7 @@ function testOwnerIsMsgSender() public {
 ## 9. Implementing HelperConfig for Multi-Chain Deployment
 
 ### The Problem
+
 Even with constructor parameters, our deployment script still hardcodes addresses. We need automatic network detection.
 
 ### 9.1 Create HelperConfig
@@ -200,9 +203,10 @@ contract HelperConfig is Script {
 ```
 
 **Key Design Points:**
-- **Struct**: Groups network-specific addresses
-- **Auto-detection**: Uses `block.chainid` to determine network
-- **Public variable**: `activeNetworkConfig` gets auto-generated getter function
+
+-   **Struct**: Groups network-specific addresses
+-   **Auto-detection**: Uses `block.chainid` to determine network
+-   **Public variable**: `activeNetworkConfig` gets auto-generated getter function
 
 ### 9.2 Update DeployFundMe
 
@@ -224,11 +228,13 @@ function run() external returns (FundMe) {
 ### 9.3 Understanding Auto-Getter
 
 When you declare:
+
 ```solidity
 NetworkConfig public activeNetworkConfig;
 ```
 
 Solidity auto-generates:
+
 ```solidity
 function activeNetworkConfig() public view returns (NetworkConfig memory)
 ```
@@ -251,14 +257,16 @@ forge test
 ```
 
 ### Benefits
-- Zero manual configuration per deployment
-- Single source of truth for addresses
-- Easy to extend with new networks
-- Same script works across all environments
+
+-   Zero manual configuration per deployment
+-   Single source of truth for addresses
+-   Easy to extend with new networks
+-   Same script works across all environments
 
 ## 10. Mock Contracts for Local Testing
 
 ### The Problem
+
 Running `forge test` locally fails because Anvil (local chain) doesn't have Chainlink contracts. We need mock contracts to simulate price feeds without forking testnets.
 
 ### 10.1 Create Mock Price Feed
@@ -296,9 +304,10 @@ function getOrCreateAnvilEthConfig() public returns (NetworkConfig memory) {
 ```
 
 **Key points:**
-- Check if mock already exists to avoid re-deployment
-- Use `vm.startBroadcast()` to deploy mock to Anvil
-- Returns mock address as price feed
+
+-   Check if mock already exists to avoid re-deployment
+-   Use `vm.startBroadcast()` to deploy mock to Anvil
+-   Returns mock address as price feed
 
 ### 10.3 Fix Version Test for Multiple Networks
 
@@ -307,7 +316,7 @@ Update test to handle different networks:
 ```solidity
 function testPriceFeedVersionIsAccurate() public {
     uint256 version = fundMe.getVersion();
-    
+
     if (block.chainid == 11155111) {
         assertEq(version, 4);  // Sepolia
     } else if (block.chainid == 1) {
@@ -341,14 +350,24 @@ function getAddressToAmountFunded(address fundingAddress) external view returns 
 function getFunder(uint256 index) external view returns (address) {
     return s_funders[index];
 }
+
+function getOwner() external view returns (address) {
+    return i_owner;
+}
 ```
+
+**Why this matters:**
+
+-   **Encapsulation**: Internal implementation details are hidden
+-   **Flexibility**: Can change internal structure without breaking tests
+-   **Security**: Prevents unintended external access to state
 
 ### 11.2 Setup Test Infrastructure
 
 ```solidity
 contract FundMeTest is Test {
     FundMe fundMe;
-    
+
     address USER = makeAddr("user");  // Create test address
     uint256 constant SEND_VALUE = 0.1 ether;
     uint256 constant STARTING_BALANCE = 10 ether;
@@ -361,7 +380,7 @@ contract FundMeTest is Test {
 }
 ```
 
-### 11.3 Test Fund Function
+### 11.3 Basic Fund Function Tests
 
 **Test insufficient ETH revert:**
 
@@ -384,28 +403,228 @@ function testFundUpdatesFundedDataStructure() public {
 }
 ```
 
-### 11.4 Run Tests
+**Test funder array tracking:**
 
-```bash
-# Run all tests
-forge test
+```solidity
+function testAddsFunderToArrayOfFunders() public {
+    vm.prank(USER);
+    fundMe.fund{value: SEND_VALUE}();
 
-# Run specific test
-forge test -mt testFundFailsWithoutEnoughETH
-
-# Run with detailed output
-forge test -vvv
-
-# Check test coverage
-forge coverage
+    address funder = fundMe.getFunder(0);
+    assertEq(funder, USER);
+}
 ```
 
-### Current Test Coverage
+### 11.4 Using Test Modifiers for Code Reuse
+
+Create a `funded` modifier to avoid repeating setup code:
+
+```solidity
+modifier funded() {
+    vm.prank(USER);
+    fundMe.fund{value: SEND_VALUE}();
+    _;  // Execute test function body here
+}
+```
+
+**Usage:**
+
+```solidity
+function testOnlyOwnerCanWithdraw() public funded {
+    vm.expectRevert();
+    vm.prank(USER);
+    fundMe.withdraw();  // USER is not owner, should revert
+}
+```
+
+**Benefits:**
+
+-   **DRY principle**: Don't Repeat Yourself
+-   **Clearer intent**: Test name focuses on what's being tested
+-   **Easier maintenance**: Change funding logic in one place
+
+### 11.5 Testing Withdraw Functionality
+
+**Test single funder withdrawal:**
+
+```solidity
+function testWithDrawWithASingleFunder() public funded {
+    // Arrange: Record balances before withdrawal
+    uint256 startingOwnerBalance = fundMe.getOwner().balance;
+    uint256 startingFundMeBalance = address(fundMe).balance;
+
+    // Act: Owner withdraws
+    vm.prank(fundMe.getOwner());
+    fundMe.withdraw();
+
+    // Assert: Verify balance changes
+    uint256 endingOwnerBalance = fundMe.getOwner().balance;
+    uint256 endingFundMeBalance = address(fundMe).balance;
+
+    assertEq(endingFundMeBalance, 0);  // Contract should be empty
+    assertEq(
+        startingFundMeBalance + startingOwnerBalance,
+        endingOwnerBalance
+    );  // Owner should receive all funds
+}
+```
+
+**Test multiple funders withdrawal:**
+
+```solidity
+function testWithdrawFromMultipleFunders() public funded {
+    // Arrange: Create multiple funders
+    uint160 numberOfFunders = 10;
+    uint160 startingFunderIndex = 1;  // Skip address(0)
+
+    for (uint160 i = startingFunderIndex; i < numberOfFunders; i++) {
+        // hoax = vm.prank + vm.deal combined
+        hoax(address(i), SEND_VALUE);
+        fundMe.fund{value: SEND_VALUE}();
+    }
+
+    uint256 startingOwnerBalance = fundMe.getOwner().balance;
+    uint256 startingFundMeBalance = address(fundMe).balance;
+
+    // Act: Owner withdraws all funds
+    vm.startPrank(fundMe.getOwner());
+    fundMe.withdraw();
+    vm.stopPrank();
+
+    // Assert: Verify complete withdrawal
+    assertEq(address(fundMe).balance, 0);
+    assertEq(
+        startingFundMeBalance + startingOwnerBalance,
+        fundMe.getOwner().balance
+    );
+}
+```
+
+**Why use `uint160` for addresses:**
+
+-   Addresses in Solidity are 20 bytes = 160 bits
+-   Using `uint160` allows safe conversion: `address(i)`
+-   Using `uint256` could cause overflow when converting to address
+
+**Why skip `address(0)`:**
+
+-   `address(0)` is often reserved/restricted in smart contracts
+-   Many contracts revert on operations with zero address
+-   Starting from `address(1)` avoids potential issues
+
+### 11.6 Advanced Cheat Codes
+
+**`hoax(address, amount)`:**
+
+-   Combines `vm.prank()` and `vm.deal()` in one call
+-   Sets up a prank from an address that has ETH
+-   Perfect for testing multiple users funding
+
+```solidity
+// Instead of:
+vm.deal(address(1), SEND_VALUE);
+vm.prank(address(1));
+fundMe.fund{value: SEND_VALUE}();
+
+// Use:
+hoax(address(1), SEND_VALUE);
+fundMe.fund{value: SEND_VALUE}();
+```
+
+### 11.7 Test Coverage Improvement
+
+**Initial Coverage** (5 tests):
 
 ![forge_coverage.png](./img/test_issues_solution/forge_coverage.png)
 
-**Key Cheat Codes Used:**
-- `makeAddr("name")`: Create labeled test address
-- `vm.deal(address, amount)`: Give address ETH
-- `vm.prank(address)`: Next call sent by address
-- `vm.expectRevert()`: Expect next call to fail
+-   FundMe.sol: 42.31% lines, 36.36% statements
+
+**Improved Coverage** (9 tests):
+
+![forge_coverage2.png](./img/test_issues_solution/forge_coverage2.png)
+
+-   FundMe.sol: **85.71% lines**, **91.30% statements** ✅
+-   Significant improvement in core contract testing
+-   Main untested areas: Error handling edge cases
+
+**Run coverage analysis:**
+
+```bash
+forge coverage
+```
+
+### 11.8 Complete Test Suite Summary
+
+**All Tests:**
+
+```bash
+forge test -vv
+```
+
+Output:
+
+```
+[PASS] testFundFailsWithoutEnoughETH() (gas: 25125)
+[PASS] testFundUpdatesFundedDataStructure() (gas: 102514)
+[PASS] testAddsFunderToArrayOfFunders() (gas: 102789)
+[PASS] testOnlyOwnerCanWithdraw() (gas: 105234)
+[PASS] testWithDrawWithASingleFunder() (gas: 108567)
+[PASS] testWithdrawFromMultipleFunders() (gas: 511401)
+[PASS] testMinimumDollarIsFive() (gas: 5750)
+[PASS] testOwnerIsMsgSender() (gas: 8101)
+[PASS] testPriceFeedVersionIsAccurate() (gas: 11369)
+
+Suite result: ok. 9 passed; 0 failed; 0 skipped
+```
+
+### 11.9 Key Testing Patterns Learned
+
+**Arrange-Act-Assert (AAA) Pattern:**
+
+```solidity
+function testExample() public {
+    // Arrange: Set up test conditions
+    uint256 startingBalance = address(fundMe).balance;
+
+    // Act: Execute the function being tested
+    fundMe.withdraw();
+
+    // Assert: Verify expected outcomes
+    assertEq(address(fundMe).balance, 0);
+}
+```
+
+**Test Modifiers for Setup:**
+
+-   Use modifiers to reduce boilerplate
+-   Makes test intent clearer
+-   Easier to maintain
+
+**Cheat Codes Used:**
+
+-   `makeAddr("name")`: Create labeled test address
+-   `vm.deal(address, amount)`: Give address ETH
+-   `vm.prank(address)`: Next call sent by address
+-   `vm.startPrank(address)` / `vm.stopPrank()`: Multiple calls as address
+-   `vm.expectRevert()`: Expect next call to fail
+-   `hoax(address, amount)`: Prank + deal combined
+
+**Best Practices:**
+
+1. Test one thing per test function
+2. Use descriptive test names (test + what it does)
+3. Always test failure cases (reverts)
+4. Verify state changes with assertions
+5. Aim for high coverage but focus on critical paths
+
+---
+
+## Summary
+
+You now have a complete, production-ready FundMe contract with:
+
+-   ✅ Multi-chain deployment support
+-   ✅ Mock contracts for local testing
+-   ✅ Comprehensive test suite (85%+ coverage)
+-   ✅ Modular, maintainable code structure
+-   ✅ Professional testing patterns

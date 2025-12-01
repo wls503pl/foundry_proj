@@ -8,6 +8,7 @@ import {DeployFundMe} from "../script/DeployFundMe.s.sol";
 contract FundMeTest is Test{
     FundMe fundMe;
 
+    // Set up a mock user
     address USER = makeAddr("user");
     uint256 constant SEND_VALUE = 0.1 ether;
     uint256 constant STARTING_BALANCE = 10 ether;
@@ -24,7 +25,7 @@ contract FundMeTest is Test{
     }
 
     function testOwnerIsMsgSender() public {
-        assertEq(fundMe.i_owner(), msg.sender);
+        assertEq(fundMe.getOwner(), msg.sender);
     }
 
     function testPriceFeedVersionIsAccurate() public {
@@ -54,5 +55,82 @@ contract FundMeTest is Test{
 
         uint256 amountFunded = fundMe.getAddressToAmountFunded(USER);
         assertEq(amountFunded, SEND_VALUE);
+    }
+
+    modifier funded() {
+        vm.prank(USER);
+        fundMe.fund{value: SEND_VALUE}();
+        _;
+    }
+
+    function testAddsFunderToArrayOfFunders() public {
+        // prank the tx sender to be USER
+        vm.prank(USER);
+        fundMe.fund{value: SEND_VALUE}();
+
+        address funder = fundMe.getFunder(0);
+        assertEq(funder, USER);
+    }
+
+    function testOnlyOwnerCanWithdraw() public funded {
+        vm.expectRevert();
+        // vm.prank will be ignored by vm.expectRevert
+        vm.prank(USER);
+        // USER is not the owner, it can't withdraw money, so this should revert
+        fundMe.withdraw();
+    }
+
+    function testWithDrawWithASingleFunder() public funded {
+        // Arrange: check balance before withdraw
+
+        // owner balance in his own wallet
+        uint256 startingOwnerBalance = fundMe.getOwner().balance;
+
+        // balance of the FundMe contract
+        uint256 startingFundMeBalance = address(fundMe).balance;
+
+        // Act: ensure it is owner can withdraw
+        vm.prank(fundMe.getOwner());
+        fundMe.withdraw();
+
+        // Assert:
+        uint256 endingOwnerBalance = fundMe.getOwner().balance;
+        uint256 endingFundMeBalance = address(fundMe).balance;
+
+        // Withdraw all funds in the contract at once
+        assertEq(endingFundMeBalance, 0);
+
+        // Owner balance should increase by the amount withdrawn
+        assertEq(startingFundMeBalance + startingOwnerBalance, endingOwnerBalance);
+    }
+
+    function testWithdrawFromMultipleFunders() public funded {
+        // uint160 to avoid overflow when converting to address
+        // ask claude for details
+        uint160 numberOfFunders = 10;
+        // Sometimes, address 0 is inverted, and no operations are allowed on it.
+        uint160 startingFunderIndex = 1;
+
+        for (uint160 i = startingFunderIndex; i < numberOfFunders; i++) {
+            // hoax: Sets up a prank from an address that has some ether.
+            // See "book.getfoundry.sh/reference/forge-std/hoax"
+
+            // vm.prank new address
+            // vm.deal new address
+            hoax(address(i), SEND_VALUE);
+
+            fundMe.fund{value: SEND_VALUE}();
+        }
+
+        uint256 startingOwnerBalance = fundMe.getOwner().balance;
+        uint256 startingFundMeBalance = address(fundMe).balance;
+
+        vm.startPrank(fundMe.getOwner());
+        fundMe.withdraw();
+        vm.stopPrank();
+
+        // Assert
+        assertEq(address(fundMe).balance, 0);
+        assertEq(startingFundMeBalance + startingOwnerBalance, fundMe.getOwner().balance);
     }
 }
