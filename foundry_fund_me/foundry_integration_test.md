@@ -30,8 +30,6 @@ Integration tests simulate **real usage** to make sure everything works together
 
 Here's how we organize integration tests:
 
-![Project Structure](img/broadcast_chainId.png)
-
 ```
 foundry_fund_me/
 ├── script/
@@ -101,7 +99,7 @@ forge install ChainAccelOrg/foundry-devops --no-commit
 
 After installation, you'll see it in `lib/`:
 
-![Foundry DevOps Installation](img/foundry_devops_installation.png)
+![Foundry DevOps Installation](img/integrationTest/foundry_devops_installation.png)
 
 ### How Does It Work?
 
@@ -120,6 +118,8 @@ address mostRecentlyDeployed = DevOpsTools.get_most_recent_deployment(
 2. Finds the folder matching your `chainid`
 3. Opens `run-latest.json`
 4. Returns the most recent contract address
+
+![broadcast chainId](img/integrationTest/broadcast_chainId.png)
 
 ---
 
@@ -271,18 +271,7 @@ forge test --match-test testUserCanFundAndWithdraw -vvv
 
 ### Expected Output
 
-```
-[⠊] Compiling...
-[⠒] Solc 0.8.28 finished in 848.90ms
-Compiler run successful!
-
-Ran 1 test for test/integration/InteractionsTest.t.sol:InteractionsTest
-[PASS] testUserCanFundAndWithdraw() (gas: 245890)
-  Funded FundMe with 10000000000000000
-  Withdrew from FundMe
-
-Suite result: ok. 1 passed; 0 failed; 0 skipped
-```
+![expect output](img/integrationTest/forge_test.png)
 
 ---
 
