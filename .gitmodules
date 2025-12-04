@@ -3,4 +3,4 @@
 	url = https://github.com/smartcontractkit/chainlink-brownie-contracts
 [submodule "foundry_fund_me/lib/foundry-devops"]
 	path = foundry_fund_me/lib/foundry-devops
-	url = https://github.com/ChainAccelOrg/foundry-devops
+	url = https://github.com/cyfrin/foundry-devops
