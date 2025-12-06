@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
+import {VRFConsumerBaseV2Plus} from "@chainlink/contracts/src/v0.8/vrf/dev/VRFConsumerBaseV2Plus.sol";
+import {VRFV2PlusClient} from "@chainlink/contracts/src/v0.8/vrf/dev/libraries/VRFV2PlusClient.sol";
+
 /**
  * @title Lottery activity contract
  * @author Peile Wu(peile.wu.1990@gmail.com)
  * @notice This contract is for creating a sample raffle
  * @dev Implements Chainlink VRFv2.5
  */
-contract Raffle {
+contract Raffle is VRFConsumerBaseV2Plus {
     // Custom errors definition
     error raffle__notEnoughFeesToEnterRaffle();
 
@@ -22,20 +25,36 @@ contract Raffle {
 
     uint256 private s_lastTimeStamp;
 
+    // Below are VRF parameters
+    bytes32 private immutable i_keyHash;
+    uint256 private immutable i_subscriptionId;
+    uint16 private constant REQUEST_CONFIRMATIONS = 3;
+    uint32 private immutable i_callbackGasLimit;
+    uint32 private constant NUM_WORDS = 1;
+
     // Events
     event RaffleEntered(address indexed player);
 
-    constructor(uint256 entranceFee, uint256 interval) {
+    constructor(
+        uint256 entranceFee,
+        uint256 interval,
+        address vrfCoordinator,
+        bytes32 gasLane,
+        uint256 subscriptionId,
+        uint32 callbackGasLimit
+    ) VRFConsumerBaseV2Plus(vrfCoordinator) {
         i_entranceFee = entranceFee;
         i_interval = interval;
         s_lastTimeStamp = block.timestamp;
+        i_keyHash = gasLane;
+        i_subscriptionId = subscriptionId;
+        i_callbackGasLimit = callbackGasLimit;
     }
 
     // People buy tickets and participate in this lottery.
     function enterRaffle() external payable {
         // to save gas, using custom error instead of require(..., string)
-        if (msg.value < i_entranceFee)
-        {
+        if (msg.value < i_entranceFee) {
             revert raffle__notEnoughFeesToEnterRaffle();
         }
         s_players.push(payable(msg.sender));
@@ -65,13 +84,27 @@ contract Raffle {
          * 1. First, a transaction must be made to request RNG.
          * 2. In the second transaction, the chained oracle will actually send us a transaction (or generate some random numbers on the chain).
          */
+        VRFV2PlusClient.RandomWordsRequest memory request = VRFV2PlusClient.RandomWordsRequest({
+            keyHash: i_keyHash,
+            subId: i_subscriptionId,
+            requestConfirmations: REQUEST_CONFIRMATIONS,
+            callbackGasLimit: i_callbackGasLimit,
+            numWords: NUM_WORDS,
+            extraArgs: VRFV2PlusClient._argsToBytes(
+                // Set nativePayment to true to pay for VRF requests with Sepolia ETH instead of LINK
+                VRFV2PlusClient.ExtraArgsV1({nativePayment: false})
+            )
+        });
+
+        uint256 requestId = s_vrfCoordinator.requestRandomWords(request);
     }
+
+    function fulfillRandomWords(uint256 requestId, uint256[] calldata randomWords) internal virtual override {}
 
     /**
      * Getter Functions
      */
-    function getEntranceFee() external view returns (uint256)
-    {
+    function getEntranceFee() external view returns (uint256) {
         return i_entranceFee;
     }
 }
