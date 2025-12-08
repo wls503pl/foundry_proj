@@ -3,12 +3,12 @@
 ## Overview
 
 **Contract**: Raffle  
-**Version**: 1.1 (VRF Integrated with State Management)  
+**Version**: 1.2 (VRF + Chainlink Automation Integrated)  
 **Solidity**: ^0.8.18  
 **License**: MIT  
 **Author**: Peile Wu (peile.wu.1990@gmail.com)
 
-A decentralized lottery contract using Chainlink VRF 2.5 for provably fair random number generation, with complete state management and winner selection.
+A fully automated decentralized lottery contract using Chainlink VRF 2.5 for provably fair random number generation and Chainlink Automation for autonomous operation.
 
 ---
 
@@ -43,6 +43,52 @@ Click on the subscription ID to open the consumer management interface:
 This opens the Add Consumer interface where you can add your deployed contract address:
 
 ![Add Consumer Interface](img/chainlink_vrf/add_consumer_interface.png)
+
+---
+
+## Chainlink Automation Setup
+
+### Why Chainlink Automation?
+
+To enable periodic, autonomous lottery draws without manual intervention, we use **Chainlink Automation** (formerly Chainlink Keepers). This allows the raffle to run continuously and automatically select winners at specified intervals.
+
+**Reference**: https://remix.ethereum.org/#url=https://docs.chain.link/samples/Automation/AutomationCounter.sol
+
+### How It Works
+
+Chainlink Automation nodes continuously monitor your contract by calling `checkUpKeep()`. When all conditions are met, they automatically trigger `performUpkeep()` to execute the winner selection process.
+
+![Chainlink Keeper](img/chainlink_automation/chainlink_keeper.png)
+
+### Registration Process
+
+1. Visit https://automation.chain.link/
+2. Connect your MetaMask wallet
+3. Click "Register New Upkeep"
+
+![Register New Upkeeper](img/chainlink_automation/register_newUpKeepper.png)
+
+4. Select trigger mechanism:
+
+    - **Custom logic**: Uses your `checkUpKeep()` function (recommended for this contract)
+    - **Time-based**: Runs at fixed intervals
+    - **Log trigger**: Responds to emitted events
+
+5. Configure upkeep parameters:
+
+    - **Target contract address**: Your deployed Raffle contract address
+    - **Upkeep name**: e.g., "Raffle Lottery Automation"
+    - **Gas limit**: Recommended 500,000
+    - **Starting balance**: Add LINK tokens to cover automation fees
+
+6. Fund the upkeep with LINK tokens
+
+### Integration Benefits
+
+-   **Fully autonomous**: No manual intervention needed to pick winners
+-   **Decentralized**: Multiple Chainlink nodes monitor and execute
+-   **Reliable**: Guaranteed execution when conditions are met
+-   **Cost-effective**: Only pays gas when `performUpkeep()` is triggered
 
 ---
 
@@ -163,11 +209,22 @@ address private s_recentWinner;            // Most recent winner address
 error Raffle__notEnoughFeesToEnterRaffle();  // Insufficient entry fee
 error Raffle__TransferFailed();              // Prize transfer failed
 error Raffle__RaffleNotOpen();               // Raffle is closed for entries
+error Raffle__UpkeepNotNeeded(               // Conditions not met for upkeep
+    uint256 balance,
+    uint256 playersLength,
+    uint256 raffleState
+);
 ```
 
 Custom errors provide gas-efficient error handling compared to `require` statements with string messages.
 
 **Naming Convention**: `ContractName__ErrorDescription` (note the capital first letter)
+
+**UpkeepNotNeeded Error**: Provides detailed debugging information:
+
+-   `balance`: Current contract balance
+-   `playersLength`: Number of players entered
+-   `raffleState`: Current state (0=OPEN, 1=CALCULATING)
 
 ---
 
@@ -197,7 +254,7 @@ constructor(
 
 ### Initialization
 
-The constructor now properly initializes:
+The constructor initializes:
 
 -   All immutable VRF parameters
 -   `s_lastTimeStamp` to current block timestamp
@@ -218,7 +275,7 @@ Allows users to enter the lottery by paying the entrance fee.
 **Process**:
 
 1. Validates payment amount meets minimum fee
-2. **Checks raffle is in OPEN state** (new)
+2. Checks raffle is in OPEN state
 3. Adds `msg.sender` to participants array
 4. Emits `RaffleEntered` event
 
@@ -230,25 +287,75 @@ Allows users to enter the lottery by paying the entrance fee.
 await raffle.enterRaffle({ value: ethers.utils.parseEther("0.01") });
 ```
 
-### pickWinner()
+---
+
+### checkUpKeep()
 
 ```solidity
-function pickWinner() external
+function checkUpKeep(bytes memory /* checkData */)
+    public
+    view
+    returns (bool upkeepNeeded, bytes memory /* performData */)
 ```
+
+**Purpose**: Called by Chainlink Automation nodes to determine if the lottery is ready for winner selection.
+
+**Return Conditions**: Returns `true` when ALL of the following conditions are met:
+
+1. **Time interval has passed**: `(block.timestamp - s_lastTimeStamp) >= i_interval`
+2. **Lottery is open**: `s_raffleState == RaffleState.OPEN`
+3. **Contract has balance**: `address(this).balance > 0`
+4. **Has players**: `s_players.length > 0`
+5. **Implicitly**: Your VRF subscription has LINK tokens
+
+**Implementation**:
+
+```solidity
+function checkUpKeep(bytes memory /* checkData */)
+    public view returns (bool upkeepNeeded, bytes memory)
+{
+    bool timeHasPassed = ((block.timestamp - s_lastTimeStamp) >= i_interval);
+    bool isOpen = s_raffleState == RaffleState.OPEN;
+    bool hasBalance = address(this).balance > 0;
+    bool hasPlayers = s_players.length > 0;
+    upkeepNeeded = timeHasPassed && isOpen && hasBalance && hasPlayers;
+    return (upkeepNeeded, "");
+}
+```
+
+**Usage**:
+
+-   Called automatically by Chainlink Automation nodes
+-   Can also be called internally by `performUpkeep()` for validation
+
+---
+
+### performUpkeep()
+
+```solidity
+function performUpkeep(bytes calldata /* performData */) external
+```
+
+**Replaces**: The previous `pickWinner()` function - now integrated with Chainlink Automation for autonomous execution.
 
 Initiates the winner selection process by requesting randomness from Chainlink VRF.
 
 **Process**:
 
-#### Phase 1: Time Validation
+#### Phase 1: Validation via checkUpKeep
 
 ```solidity
-if ((block.timestamp - s_lastTimeStamp) < i_interval) {
-    revert();
+(bool upkeepNeeded,) = checkUpKeep("");
+if (!upkeepNeeded) {
+    revert Raffle__UpkeepNotNeeded(
+        address(this).balance,
+        s_players.length,
+        uint256(s_raffleState)
+    );
 }
 ```
 
-Ensures sufficient time has passed since last drawing.
+Validates all conditions are met. If not, reverts with detailed state information for debugging.
 
 #### Phase 2: Lock Raffle State
 
@@ -275,19 +382,25 @@ VRFV2PlusClient.RandomWordsRequest memory request = VRFV2PlusClient.RandomWordsR
 uint256 requestId = s_vrfCoordinator.requestRandomWords(request);
 ```
 
-**VRF Request Flow**:
+**Automated Flow**:
 
 ```
-Transaction 1: pickWinner()
+Chainlink Automation monitors checkUpKeep()
+    ↓ (returns true when conditions met)
+Transaction 1: Automation calls performUpkeep()
     ↓ (State: OPEN → CALCULATING)
 Request sent to Chainlink VRF
     ↓
 Chainlink generates random number + proof
     ↓
-Transaction 2: fulfillRandomWords() callback
+Transaction 2: VRF calls fulfillRandomWords()
     ↓ (State: CALCULATING → OPEN)
 Winner selected and paid
+    ↓
+Cycle repeats automatically
 ```
+
+---
 
 ### fulfillRandomWords()
 
@@ -315,7 +428,7 @@ function fulfillRandomWords(uint256 requestId, uint256[] calldata randomWords) i
     emit WinnerPicked(s_recentWinner);
 
     // Interactions (External calls last)
-    (bool success, ) = recentWinner.call{value: address(this).balance}("");
+    (bool success,) = recentWinner.call{value: address(this).balance}("");
     if (!success) {
         revert Raffle__TransferFailed();
     }
@@ -326,8 +439,8 @@ function fulfillRandomWords(uint256 requestId, uint256[] calldata randomWords) i
 
 A security best practice to prevent reentrancy attacks:
 
-1. **Checks**: Validate conditions (VRF handles this for us)
-2. **Effects**: Update all internal state variables
+1. **Checks**: Validate conditions (VRF handles this automatically)
+2. **Effects**: Update all internal state variables first
 3. **Interactions**: Make external calls (transfer prize) only after state is updated
 
 **Why CEI Matters**: If we transferred money before updating state, a malicious contract could re-enter and exploit the old state.
@@ -340,11 +453,13 @@ randomWords[0] % s_players.length
 
 Modulo operation ensures index is within array bounds, giving each participant equal probability.
 
-**State Reset**: After winner is selected, the raffle:
+**State Reset**: After winner is selected, the raffle automatically:
 
--   Returns to `OPEN` state
+-   Returns to `OPEN` state (ready for new entries)
 -   Clears all players
 -   Resets timestamp for next round
+
+---
 
 ### getEntranceFee()
 
@@ -395,9 +510,9 @@ Blockchains are deterministic - if random number generation happened in the same
 
 **Solution**:
 
-1. **Transaction 1**: Contract requests randomness, locks raffle
+1. **Transaction 1**: Contract requests randomness via `performUpkeep()`, locks raffle
 2. **Off-chain**: Chainlink generates random number with cryptographic proof
-3. **Transaction 2**: Chainlink calls back with verified random number, selects winner, reopens raffle
+3. **Transaction 2**: Chainlink calls back with verified random number via `fulfillRandomWords()`, selects winner, reopens raffle
 
 This ensures:
 
@@ -426,9 +541,13 @@ Prevents new entries during winner selection, ensuring:
 
 Following Checks-Effects-Interactions pattern prevents reentrancy attacks during prize distribution.
 
-### 3. Custom Errors
+### 3. Automated Validation
 
-Gas-efficient error handling with clear error messages for debugging and user feedback.
+`checkUpKeep()` validates all conditions before allowing `performUpkeep()` to execute, preventing invalid state transitions.
+
+### 4. Custom Errors
+
+Gas-efficient error handling with clear, detailed error messages for debugging and user feedback.
 
 ---
 
@@ -439,13 +558,14 @@ Gas-efficient error handling with clear error messages for debugging and user fe
 1. Create VRF subscription at https://vrf.chain.link/
 2. Fund subscription with LINK tokens
 3. Note your subscription ID
+4. Prepare LINK tokens for Chainlink Automation
 
 ### Deployment
 
 ```solidity
 // Sepolia Configuration
 uint256 entranceFee = 0.01 ether;
-uint256 interval = 30 seconds;
+uint256 interval = 30 seconds;  // Or 86400 for 24 hours
 address vrfCoordinator = 0x9DdfaCa8183c41ad55329BdeeD9F6A8d53168B1B;
 bytes32 gasLane = 0x787d74caea10b2b357790d5b5247c2f63d1d91572a9846f780606e4d953677ae;
 uint256 subscriptionId = YOUR_SUBSCRIPTION_ID;
@@ -461,11 +581,28 @@ Raffle raffle = new Raffle(
 );
 ```
 
-### Post-Deployment
+### Post-Deployment Steps
 
-1. Copy deployed contract address
-2. Return to VRF subscription manager
-3. Add contract address as consumer
+1. **Add VRF Consumer**:
+
+    - Copy deployed contract address
+    - Go to https://vrf.chain.link/
+    - Add contract address as consumer to your subscription
+
+2. **Register Chainlink Automation**:
+
+    - Go to https://automation.chain.link/
+    - Click "Register New Upkeep"
+    - Select "Custom logic" trigger
+    - Enter your contract address
+    - Set gas limit to 500,000
+    - Fund with LINK tokens
+    - Confirm registration
+
+3. **Verify Setup**:
+    - Your lottery is now fully automated!
+    - Chainlink Automation will call `performUpkeep()` when conditions are met
+    - Winners will be selected and paid automatically
 
 ---
 
@@ -473,13 +610,15 @@ Raffle raffle = new Raffle(
 
 ### ✅ Completed
 
--   VRF integration structure
+-   VRF integration for provably fair randomness
 -   Entry function with payment validation
--   **State management with locking mechanism**
--   **Complete winner selection logic**
--   **Prize distribution with CEI pattern**
--   **Comprehensive error handling**
--   **Winner tracking**
+-   State management with locking mechanism
+-   Complete winner selection logic
+-   Prize distribution with CEI pattern
+-   Comprehensive error handling with detailed state info
+-   Winner tracking
+-   **Chainlink Automation integration (`checkUpKeep` + `performUpkeep`)**
+-   **Fully autonomous operation**
 -   Time-interval validation
 
 ### 🎯 Suggested Future Improvements
@@ -491,6 +630,7 @@ function getNumberOfPlayers() external view returns (uint256);
 function getRecentWinner() external view returns (address);
 function getRaffleState() external view returns (RaffleState);
 function getLastTimeStamp() external view returns (uint256);
+function getInterval() external view returns (uint256);
 ```
 
 ### Testing Recommendations
@@ -500,6 +640,9 @@ function getLastTimeStamp() external view returns (uint256);
 3. Test prize transfer failure scenarios
 4. Test time interval validation
 5. Verify state transitions (OPEN ↔ CALCULATING)
+6. **Test `checkUpKeep()` returns false when conditions not met**
+7. **Test `performUpkeep()` reverts with `UpkeepNotNeeded` when called prematurely**
+8. **Verify full automated cycle on testnet with Chainlink Automation**
 
 ---
 
@@ -507,15 +650,26 @@ function getLastTimeStamp() external view returns (uint256);
 
 ### Contract States
 
-| State       | Description       | Can Enter? | Can Pick Winner?        |
-| ----------- | ----------------- | ---------- | ----------------------- |
-| OPEN        | Accepting entries | ✅ Yes     | ✅ Yes (if time passed) |
-| CALCULATING | Selecting winner  | ❌ No      | ❌ No                   |
+| State       | Description       | Can Enter? | Can Perform Upkeep?        |
+| ----------- | ----------------- | ---------- | -------------------------- |
+| OPEN        | Accepting entries | ✅ Yes     | ✅ Yes (if conditions met) |
+| CALCULATING | Selecting winner  | ❌ No      | ❌ No                      |
 
 ### Error Codes
 
-| Error                                | Meaning               | Common Cause                           |
-| ------------------------------------ | --------------------- | -------------------------------------- |
-| `Raffle__notEnoughFeesToEnterRaffle` | Payment too low       | Sent less than entrance fee            |
-| `Raffle__RaffleNotOpen`              | Raffle is locked      | Tried to enter during winner selection |
-| `Raffle__TransferFailed`             | Prize transfer failed | Winner contract rejected payment       |
+| Error                                | Meaning               | Common Cause                                             |
+| ------------------------------------ | --------------------- | -------------------------------------------------------- |
+| `Raffle__notEnoughFeesToEnterRaffle` | Payment too low       | Sent less than entrance fee                              |
+| `Raffle__RaffleNotOpen`              | Raffle is locked      | Tried to enter during winner selection                   |
+| `Raffle__TransferFailed`             | Prize transfer failed | Winner contract rejected payment                         |
+| `Raffle__UpkeepNotNeeded`            | Cannot perform upkeep | Time not passed / No players / No balance / State locked |
+
+### Automation Checklist
+
+-   [ ] VRF subscription created and funded
+-   [ ] Contract deployed successfully
+-   [ ] Contract added as VRF consumer
+-   [ ] Chainlink Automation upkeep registered
+-   [ ] Automation upkeep funded with LINK
+-   [ ] Test entry and verify participants tracking
+-   [ ] Verify automated winner selection on testnet
