@@ -66,7 +66,7 @@ Chainlink Automation nodes continuously monitor your contract by calling `checkU
 2. Connect your MetaMask wallet
 3. Click "Register New Upkeep"
 
-![Register New Upkeeper](img/chainlink_automation/register_newUpKeepper.png)
+![Register New Upkeeper](img/chainlink_automation/register_newUpkeepper.png)
 
 4. Select trigger mechanism:
 
@@ -553,32 +553,65 @@ Gas-efficient error handling with clear, detailed error messages for debugging a
 
 ## Deployment Guide
 
+### Deployment Scripts
+
+The project includes automated deployment scripts using Foundry:
+
+**HelperConfig.s.sol**: Manages network-specific configurations
+
+-   Automatically detects chain ID (Sepolia or local Anvil)
+-   Provides pre-configured VRF parameters for Sepolia
+-   Deploys mock VRF coordinator for local testing
+-   Supports multiple networks through mapping
+
+**DeployRaffle.s.sol**: Handles contract deployment
+
+-   Uses HelperConfig to get network-specific settings
+-   Deploys Raffle contract with correct parameters
+-   Returns deployed contract instances for testing
+
 ### Prerequisites
 
 1. Create VRF subscription at https://vrf.chain.link/
 2. Fund subscription with LINK tokens
-3. Note your subscription ID
+3. Note your subscription ID (or set to 0 for auto-creation in script)
 4. Prepare LINK tokens for Chainlink Automation
 
-### Deployment
+### Network Configurations
+
+**Sepolia Testnet** (Chain ID: 11155111):
 
 ```solidity
-// Sepolia Configuration
-uint256 entranceFee = 0.01 ether;
-uint256 interval = 30 seconds;  // Or 86400 for 24 hours
-address vrfCoordinator = 0x9DdfaCa8183c41ad55329BdeeD9F6A8d53168B1B;
-bytes32 gasLane = 0x787d74caea10b2b357790d5b5247c2f63d1d91572a9846f780606e4d953677ae;
-uint256 subscriptionId = YOUR_SUBSCRIPTION_ID;
-uint32 callbackGasLimit = 100000;
+entranceFee: 0.01 ether
+interval: 30 seconds
+vrfCoordinator: 0x9DdfaCa8183c41ad55329BdeeD9F6A8d53168B1B
+gasLane: 0x787d74caea10b2b357790d5b5247c2f63d1d91572a9846f780606e4d953677ae
+callbackGasLimit: 500000
+subscriptionId: 0  // Auto-create if not set
+```
 
-Raffle raffle = new Raffle(
-    entranceFee,
-    interval,
-    vrfCoordinator,
-    gasLane,
-    subscriptionId,
-    callbackGasLimit
-);
+**Local Anvil** (Chain ID: 31337):
+
+-   Automatically deploys VRFCoordinatorV2_5Mock
+-   Uses same parameters as Sepolia for consistency
+-   Mock fee: 0.25 ether, Gas price: 1 gwei
+
+### Deployment Commands
+
+**Deploy to Sepolia**:
+
+```bash
+forge script script/DeployRaffle.s.sol:DeployRaffle --rpc-url $SEPOLIA_RPC_URL --broadcast --verify
+```
+
+**Deploy to Local Anvil**:
+
+```bash
+# Start Anvil in one terminal
+anvil
+
+# Deploy in another terminal
+forge script script/DeployRaffle.s.sol:DeployRaffle --rpc-url http://localhost:8545 --broadcast
 ```
 
 ### Post-Deployment Steps
@@ -635,14 +668,35 @@ function getInterval() external view returns (uint256);
 
 ### Testing Recommendations
 
+**Unit Tests**:
+
 1. Test entry during CALCULATING state (should fail)
 2. Test winner selection with multiple participants
 3. Test prize transfer failure scenarios
 4. Test time interval validation
 5. Verify state transitions (OPEN ↔ CALCULATING)
-6. **Test `checkUpKeep()` returns false when conditions not met**
-7. **Test `performUpkeep()` reverts with `UpkeepNotNeeded` when called prematurely**
-8. **Verify full automated cycle on testnet with Chainlink Automation**
+6. Test `checkUpKeep()` returns false when conditions not met
+7. Test `performUpkeep()` reverts with `UpkeepNotNeeded` when called prematurely
+
+**Integration Tests**: 8. Deploy to local Anvil and test full cycle with mocks 9. Verify VRF mock returns random numbers correctly 10. Test multiple raffle rounds with state resets
+
+**Testnet Verification**: 11. Deploy to Sepolia testnet 12. Register with Chainlink Automation 13. Verify full automated cycle end-to-end
+
+**Test Commands**:
+
+```bash
+# Run all tests
+forge test
+
+# Run with verbosity
+forge test -vvv
+
+# Run specific test
+forge test --match-test testFunctionName
+
+# Check coverage
+forge coverage
+```
 
 ---
 
