@@ -21,6 +21,9 @@ contract RaffleTest is Test {
     // Carrying a huge sum of money to participate in the game
     uint256 public constant STARTING_PLAYER_BALANCE = 10 ether;
 
+    event RaffleEntered(address indexed player);
+    event WinnerPicked(address indexed winner);
+
     function setUp() external {
         DeployRaffle deployer = new DeployRaffle();
         (raffle, helperConfig) = deployer.deployContract();
@@ -59,5 +62,36 @@ contract RaffleTest is Test {
 
         address playerRecorded = raffle.getPlayer(0);
         assert(playerRecorded == PLAYER);
+    }
+
+    function testEnteringRaffleEmitsEvent() public {
+        vm.prank(PLAYER);
+
+        // Tell foundry here we hope to send out an event
+        vm.expectEmit(true, false, false, false, address(raffle));
+        emit RaffleEntered(PLAYER);
+
+        raffle.enterRaffle{value: entranceFee}();
+    }
+
+    function testDontAllowPlayersToEnterWhileRaffleIsCalculating() public {
+        vm.prank(PLAYER);
+        raffle.enterRaffle{value: entranceFee}();
+
+        // `vm.warp` can be used with `set block.timestamp:` to automatically change the block timestamp to any value
+        vm.warp(block.timestamp + interval + 1);
+
+        // `vm.roll` can change the block number
+        vm.roll(block.number + 1);
+        
+        /* The above two steps are sufficient to ensure that a lottery cycle has passed */
+
+        raffle.performUpkeep("");
+
+
+        // Act/Assert Phase
+        vm.expectRevert(Raffle.Raffle__RaffleNotOpen.selector);
+        vm.prank(PLAYER);
+        raffle.enterRaffle{value: entranceFee}();
     }
 }
