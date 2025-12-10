@@ -25,6 +25,53 @@ Visit https://docs.chain.link/vrf/v2-5/getting-started and click the subscriptio
 
 ![Chainlink VRF Subscription](img/chainlink_vrf/chainlink_vrf_subscription.png)
 
+### Automated Subscription Creation
+
+The deployment script can automatically create a VRF subscription if one doesn't exist.
+
+**Implementation in DeployRaffle.s.sol**:
+
+```solidity
+if (config.subscriptionId == 0)
+{
+    // create subscription
+    CreateSubscription createSubscription = new CreateSubscription();
+    (config.subscriptionId, config.vrfCoordinator) =
+        createSubscription.createSubscription(config.vrfCoordinator);
+}
+```
+
+**CreateSubscription Contract (Interactions.s.sol)**:
+
+```solidity
+contract CreateSubscription is Script {
+    function createSubscription(address vrfCoordinator)
+        public returns(uint256, address)
+    {
+        console2.log("Creating subscription on chain Id: ", block.chainid);
+        vm.startBroadcast();
+        uint256 subId = VRFCoordinatorV2_5Mock(vrfCoordinator).createSubscription();
+        vm.stopBroadcast();
+
+        console2.log("Your subscription Id is: ", subId);
+        console2.log("Please update the subscription Id in your HelperConfig.s.sol");
+        return (subId, vrfCoordinator);
+    }
+}
+```
+
+**How it works**:
+
+-   During deployment, checks if `subscriptionId` is 0 in HelperConfig
+-   If 0, automatically calls VRF coordinator to create a new subscription
+-   Returns the new subscription ID for contract deployment
+-   Useful for local testing and first-time deployments
+
+**Important**: After auto-creation, you still need to:
+
+1. Fund the subscription with LINK tokens at https://vrf.chain.link/
+2. Add the deployed Raffle contract as a consumer to the subscription
+
 ### Adding Funds
 
 After creating the subscription, you can add funds using either:
@@ -66,7 +113,7 @@ Chainlink Automation nodes continuously monitor your contract by calling `checkU
 2. Connect your MetaMask wallet
 3. Click "Register New Upkeep"
 
-![Register New Upkeeper](img/chainlink_automation/register_newUpkeepper.png)
+![Register New Upkeeper](img/chainlink_automation/register_newUpKeepper.png)
 
 4. Select trigger mechanism:
 
@@ -567,14 +614,21 @@ The project includes automated deployment scripts using Foundry:
 **DeployRaffle.s.sol**: Handles contract deployment
 
 -   Uses HelperConfig to get network-specific settings
+-   **Automatically creates VRF subscription if `subscriptionId` is 0**
 -   Deploys Raffle contract with correct parameters
 -   Returns deployed contract instances for testing
 
+**Interactions.s.sol**: Provides subscription management utilities
+
+-   `CreateSubscription`: Creates VRF subscriptions programmatically
+-   Useful for automated deployment pipelines
+-   Works with both real networks and local mocks
+
 ### Prerequisites
 
-1. Create VRF subscription at https://vrf.chain.link/
+1. Create VRF subscription at https://vrf.chain.link/ (or set `subscriptionId` to 0 for auto-creation)
 2. Fund subscription with LINK tokens
-3. Note your subscription ID (or set to 0 for auto-creation in script)
+3. Note your subscription ID
 4. Prepare LINK tokens for Chainlink Automation
 
 ### Network Configurations
@@ -652,6 +706,7 @@ forge script script/DeployRaffle.s.sol:DeployRaffle --rpc-url http://localhost:8
 -   Winner tracking
 -   **Chainlink Automation integration (`checkUpKeep` + `performUpkeep`)**
 -   **Fully autonomous operation**
+-   **Automated VRF subscription creation for deployment**
 -   Time-interval validation
 
 ### 🎯 Suggested Future Improvements
@@ -678,9 +733,9 @@ function getInterval() external view returns (uint256);
 6. Test `checkUpKeep()` returns false when conditions not met
 7. Test `performUpkeep()` reverts with `UpkeepNotNeeded` when called prematurely
 
-**Integration Tests**: 8. Deploy to local Anvil and test full cycle with mocks 9. Verify VRF mock returns random numbers correctly 10. Test multiple raffle rounds with state resets
+**Integration Tests**: 8. Deploy to local Anvil and test full cycle with mocks 9. Verify VRF mock returns random numbers correctly 10. Test multiple raffle rounds with state resets 11. Test automated subscription creation flow
 
-**Testnet Verification**: 11. Deploy to Sepolia testnet 12. Register with Chainlink Automation 13. Verify full automated cycle end-to-end
+**Testnet Verification**: 12. Deploy to Sepolia testnet 13. Register with Chainlink Automation 14. Verify full automated cycle end-to-end
 
 **Test Commands**:
 
@@ -720,7 +775,8 @@ forge coverage
 
 ### Automation Checklist
 
--   [ ] VRF subscription created and funded
+-   [ ] VRF subscription created (manually or auto-created)
+-   [ ] Subscription funded with LINK tokens
 -   [ ] Contract deployed successfully
 -   [ ] Contract added as VRF consumer
 -   [ ] Chainlink Automation upkeep registered
