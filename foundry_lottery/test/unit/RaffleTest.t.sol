@@ -83,11 +83,10 @@ contract RaffleTest is Test {
 
         // `vm.roll` can change the block number
         vm.roll(block.number + 1);
-        
+
         /* The above two steps are sufficient to ensure that a lottery cycle has passed */
 
         raffle.performUpkeep("");
-
 
         // Act/Assert Phase
         vm.expectRevert(Raffle.Raffle__RaffleNotOpen.selector);

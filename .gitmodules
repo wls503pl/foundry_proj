@@ -7,3 +7,6 @@
 [submodule "foundry_lottery/lib/chainlink-brownie-contracts"]
 	path = foundry_lottery/lib/chainlink-brownie-contracts
 	url = https://github.com/smartcontractkit/chainlink-brownie-contracts
+[submodule "foundry_lottery/lib/solmate"]
+	path = foundry_lottery/lib/solmate
+	url = https://github.com/transmissions11/solmate

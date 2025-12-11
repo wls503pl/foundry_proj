@@ -3,7 +3,7 @@
 ## Overview
 
 **Contract**: Raffle  
-**Version**: 1.2 (VRF + Chainlink Automation Integrated)  
+**Version**: 1.3 (VRF + Chainlink Automation + Automated Funding)  
 **Solidity**: ^0.8.18  
 **License**: MIT  
 **Author**: Peile Wu (peile.wu.1990@gmail.com)
@@ -27,17 +27,24 @@ Visit https://docs.chain.link/vrf/v2-5/getting-started and click the subscriptio
 
 ### Automated Subscription Creation
 
-The deployment script can automatically create a VRF subscription if one doesn't exist.
+The deployment script automatically creates a VRF subscription if one doesn't exist.
 
 **Implementation in DeployRaffle.s.sol**:
 
 ```solidity
-if (config.subscriptionId == 0)
-{
-    // create subscription
+if (config.subscriptionId == 0) {
+    // Create subscription
     CreateSubscription createSubscription = new CreateSubscription();
     (config.subscriptionId, config.vrfCoordinator) =
         createSubscription.createSubscription(config.vrfCoordinator);
+
+    // Fund the subscription
+    FundSubscription fundSubscription = new FundSubscription();
+    fundSubscription.fundSubscription(
+        config.vrfCoordinator,
+        config.subscriptionId,
+        config.link
+    );
 }
 ```
 
@@ -60,28 +67,131 @@ contract CreateSubscription is Script {
 }
 ```
 
-**How it works**:
+### Automated Subscription Funding
 
--   During deployment, checks if `subscriptionId` is 0 in HelperConfig
--   If 0, automatically calls VRF coordinator to create a new subscription
--   Returns the new subscription ID for contract deployment
--   Useful for local testing and first-time deployments
+The `FundSubscription` contract handles automatic funding of VRF subscriptions with different logic for local and testnet environments.
 
-**Important**: After auto-creation, you still need to:
+**FundSubscription Contract (Interactions.s.sol)**:
 
-1. Fund the subscription with LINK tokens at https://vrf.chain.link/
-2. Add the deployed Raffle contract as a consumer to the subscription
+```solidity
+contract FundSubscription is Script, CodeConstants {
+    uint256 public constant FUND_AMOUNT = 3 ether; // 3 LINKs
 
-### Adding Funds
+    function fundSubscription(
+        address vrfCoordinator,
+        uint256 subscriptionId,
+        address linkToken
+    ) public {
+        console2.log("Funding subscription: ", subscriptionId);
+        console2.log("Using vrfCoordinator: ", vrfCoordinator);
+        console2.log("On ChainId: ", block.chainid);
 
-After creating the subscription, you can add funds using either:
+        if (block.chainid == LOCAL_CHAIN_ID) {
+            // Local: Use VRF mock's fundSubscription
+            vm.startBroadcast();
+            VRFCoordinatorV2_5Mock(vrfCoordinator).fundSubscription(
+                subscriptionId,
+                FUND_AMOUNT
+            );
+            vm.stopBroadcast();
+        } else {
+            // Testnet/Mainnet: Use LINK token's transferAndCall
+            vm.startBroadcast();
+            LinkToken(linkToken).transferAndCall(
+                vrfCoordinator,
+                FUND_AMOUNT,
+                abi.encode(subscriptionId)
+            );
+            vm.stopBroadcast();
+        }
+    }
+}
+```
 
--   Sepolia LINK tokens (recommended)
--   Sepolia ETH (native payment)
+**Key Features**:
+
+-   **Network Detection**: Automatically uses appropriate funding method based on chain ID
+-   **Local Networks**: Directly calls VRF mock's `fundSubscription()` function
+-   **Test/Main Networks**: Uses LINK token's `transferAndCall()` with encoded subscription ID
+-   **Standard Amount**: Funds with 3 LINK tokens by default
+
+### Installing Required Dependencies
+
+**LinkToken Mock Contract**:
+
+The project uses a mock LINK token contract for local testing. It implements the ERC677 standard (ERC20 extension) with the `transferAndCall` function required by Chainlink VRF.
+
+```bash
+# Install solmate (for ERC20 implementation)
+forge install transmissions11/solmate@v6
+```
+
+**Update foundry.toml**:
+
+```toml
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+remappings = [
+    "@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/",
+    "@solmate=lib/solmate/src",
+]
+```
+
+**LinkToken Features**:
+
+-   Implements ERC677 `transferAndCall()` for VRF subscription funding
+-   Mints initial supply for testing
+-   Used only in local Anvil networks (real LINK token used on testnets)
+
+### Manual Funding via Script
+
+You can manually fund subscriptions using the standalone script:
+
+**Create .env file** with your RPC URL:
+
+```bash
+SEPOLIA_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY
+```
+
+**Setup Keystore Account**:
+
+If using the default account causes errors:
+
+![Default Account Error](img/chainlink_vrf/default_account_error.png)
+
+Create a test account and import your private key:
+
+```bash
+# Create and import account
+cast wallet import myAccount --interactive
+
+# Enter your private key and password when prompted
+```
+
+**Run Funding Script**:
+
+```bash
+forge script script/Interactions.s.sol:FundSubscription \
+  --rpc-url $SEPOLIA_RPC_URL \
+  --account myAccount \
+  --broadcast
+```
+
+**Successful Output**:
+
+![Fund Subscription Success](img/chainlink_vrf/fundsubscription_succeed.png)
+
+**Verify Subscription Balance**:
+
+After successful funding, check the subscription balance on https://vrf.chain.link/:
+
+![Subscription Balance Added](img/chainlink_vrf/subscription_balance_added.png)
 
 ### Adding Consumer Contract
 
-After deploying the Raffle contract, you need to add it as a consumer to your subscription.
+After deploying the Raffle contract, add it as a consumer to your subscription.
 
 Click on the subscription ID to open the consumer management interface:
 
@@ -187,7 +297,10 @@ git clone --depth 1 --branch v2.17.0 \
 src = "src"
 out = "out"
 libs = ["lib"]
-remappings = ["@chainlink/contracts/=lib/chainlink/contracts/"]
+remappings = [
+    "@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/",
+    "@solmate=lib/solmate/src",
+]
 ```
 
 ### Inheritance
@@ -238,7 +351,8 @@ uint32 private constant NUM_WORDS = 1;         // Number of random values
 
 -   VRF Coordinator: `0x9DdfaCa8183c41ad55329BdeeD9F6A8d53168B1B`
 -   Key Hash: `0x787d74caea10b2b357790d5b5247c2f63d1d91572a9846f780606e4d953677ae`
--   Callback Gas Limit: `100000` (recommended starting point)
+-   LINK Token: `0x779877A7B0D9E8603169DdbD7836e478b4624789`
+-   Callback Gas Limit: `500000` (recommended)
 
 ### Runtime State
 
@@ -293,11 +407,11 @@ constructor(
 | Parameter          | Type    | Description                 | Example                        |
 | ------------------ | ------- | --------------------------- | ------------------------------ |
 | `entranceFee`      | uint256 | Entry fee in wei            | `10000000000000000` (0.01 ETH) |
-| `interval`         | uint256 | Drawing interval in seconds | `86400` (24 hours)             |
+| `interval`         | uint256 | Drawing interval in seconds | `30` (30 seconds)              |
 | `vrfCoordinator`   | address | VRF Coordinator address     | `0x9DdfaCa8...`                |
 | `gasLane`          | bytes32 | Gas lane key hash           | `0x787d74...`                  |
-| `subscriptionId`   | uint256 | Your VRF subscription ID    | From VRF UI                    |
-| `callbackGasLimit` | uint32  | Max gas for callback        | `100000`                       |
+| `subscriptionId`   | uint256 | Your VRF subscription ID    | Auto-generated or manual       |
+| `callbackGasLimit` | uint32  | Max gas for callback        | `500000`                       |
 
 ### Initialization
 
@@ -508,13 +622,15 @@ Modulo operation ensures index is within array bounds, giving each participant e
 
 ---
 
-### getEntranceFee()
+### Getter Functions
 
 ```solidity
-function getEntranceFee() external view returns (uint256)
+function getEntranceFee() external view returns (uint256);
+function getRaffleState() external view returns (RaffleState);
+function getPlayer(uint256 indexOfPlayer) external view returns (address);
 ```
 
-Returns the entrance fee for frontend integration.
+**Purpose**: Provide frontend integration and state inspection capabilities.
 
 ---
 
@@ -608,28 +724,71 @@ The project includes automated deployment scripts using Foundry:
 
 -   Automatically detects chain ID (Sepolia or local Anvil)
 -   Provides pre-configured VRF parameters for Sepolia
--   Deploys mock VRF coordinator for local testing
+-   Deploys mock VRF coordinator and LINK token for local testing
 -   Supports multiple networks through mapping
+
+**Network-Specific LINK Token Configuration**:
+
+```solidity
+// Sepolia configuration
+function getSepoliaEthConfig() public pure returns (NetworkConfig memory) {
+    return NetworkConfig({
+        entranceFee: 0.01 ether,
+        interval: 30,
+        vrfCoordinator: 0x9DdfaCa8183c41ad55329BdeeD9F6A8d53168B1B,
+        gasLane: 0x787d74caea10b2b357790d5b5247c2f63d1d91572a9846f780606e4d953677ae,
+        callbackGasLimit: 500000,
+        subscriptionId: 0,  // Auto-create if needed
+        link: 0x779877A7B0D9E8603169DdbD7836e478b4624789  // Real LINK token
+    });
+}
+
+// Local Anvil configuration
+function getOrCreateAnvilEthConfig() public returns (NetworkConfig memory) {
+    if (localNetworkConfig.vrfCoordinator != address(0)) {
+        return localNetworkConfig;
+    }
+
+    vm.startBroadcast();
+    VRFCoordinatorV2_5Mock vrfCoordinatorMock =
+        new VRFCoordinatorV2_5Mock(MOCK_BASE_FEE, MOCK_GAS_PRICE_LINK, MOCK_WEI_PER_UINT_LINK);
+    LinkToken linkToken = new LinkToken();  // Deploy mock LINK token
+    vm.stopBroadcast();
+
+    localNetworkConfig = NetworkConfig({
+        entranceFee: 0.01 ether,
+        interval: 30,
+        vrfCoordinator: address(vrfCoordinatorMock),
+        gasLane: 0x787d74caea10b2b357790d5b5247c2f63d1d91572a9846f780606e4d953677ae,
+        callbackGasLimit: 500000,
+        subscriptionId: 0,
+        link: address(linkToken)  // Mock LINK token
+    });
+    return localNetworkConfig;
+}
+```
 
 **DeployRaffle.s.sol**: Handles contract deployment
 
 -   Uses HelperConfig to get network-specific settings
 -   **Automatically creates VRF subscription if `subscriptionId` is 0**
+-   **Automatically funds subscription with 3 LINK**
 -   Deploys Raffle contract with correct parameters
 -   Returns deployed contract instances for testing
 
 **Interactions.s.sol**: Provides subscription management utilities
 
 -   `CreateSubscription`: Creates VRF subscriptions programmatically
+-   `FundSubscription`: Funds subscriptions with network-aware logic
 -   Useful for automated deployment pipelines
 -   Works with both real networks and local mocks
 
 ### Prerequisites
 
-1. Create VRF subscription at https://vrf.chain.link/ (or set `subscriptionId` to 0 for auto-creation)
-2. Fund subscription with LINK tokens
-3. Note your subscription ID
-4. Prepare LINK tokens for Chainlink Automation
+1. Install dependencies (Chainlink contracts and Solmate)
+2. Set up environment variables (`.env` file)
+3. Create keystore account for deployment
+4. Ensure sufficient ETH and LINK for deployment and funding
 
 ### Network Configurations
 
@@ -641,21 +800,26 @@ interval: 30 seconds
 vrfCoordinator: 0x9DdfaCa8183c41ad55329BdeeD9F6A8d53168B1B
 gasLane: 0x787d74caea10b2b357790d5b5247c2f63d1d91572a9846f780606e4d953677ae
 callbackGasLimit: 500000
-subscriptionId: 0  // Auto-create if not set
+subscriptionId: 0  // Auto-create and fund if not set
+link: 0x779877A7B0D9E8603169DdbD7836e478b4624789
 ```
 
 **Local Anvil** (Chain ID: 31337):
 
--   Automatically deploys VRFCoordinatorV2_5Mock
+-   Automatically deploys VRFCoordinatorV2_5Mock and LinkToken mock
 -   Uses same parameters as Sepolia for consistency
--   Mock fee: 0.25 ether, Gas price: 1 gwei
+-   Mock funding: 3 LINK via VRF mock's `fundSubscription()`
 
 ### Deployment Commands
 
 **Deploy to Sepolia**:
 
 ```bash
-forge script script/DeployRaffle.s.sol:DeployRaffle --rpc-url $SEPOLIA_RPC_URL --broadcast --verify
+forge script script/DeployRaffle.s.sol:DeployRaffle \
+  --rpc-url $SEPOLIA_RPC_URL \
+  --account myAccount \
+  --broadcast \
+  --verify
 ```
 
 **Deploy to Local Anvil**:
@@ -665,16 +829,31 @@ forge script script/DeployRaffle.s.sol:DeployRaffle --rpc-url $SEPOLIA_RPC_URL -
 anvil
 
 # Deploy in another terminal
-forge script script/DeployRaffle.s.sol:DeployRaffle --rpc-url http://localhost:8545 --broadcast
+forge script script/DeployRaffle.s.sol:DeployRaffle \
+  --rpc-url http://localhost:8545 \
+  --broadcast
 ```
+
+### Automated Deployment Flow
+
+The deployment process now includes automatic subscription creation and funding:
+
+1. **Check Subscription ID**: If `subscriptionId` is 0, proceed with auto-creation
+2. **Create Subscription**: Call `CreateSubscription` to generate new subscription
+3. **Fund Subscription**: Call `FundSubscription` to add 3 LINK tokens
+4. **Deploy Contract**: Deploy Raffle with funded subscription
+5. **Add Consumer**: Manually add contract as consumer (required step)
+
+**Note**: Even with automated funding, you still need to manually add the deployed contract as a consumer to the subscription via https://vrf.chain.link/
 
 ### Post-Deployment Steps
 
-1. **Add VRF Consumer**:
+1. **Add VRF Consumer** (Required):
 
-    - Copy deployed contract address
+    - Copy deployed contract address from deployment output
     - Go to https://vrf.chain.link/
-    - Add contract address as consumer to your subscription
+    - Find your subscription (auto-created or existing)
+    - Add contract address as consumer
 
 2. **Register Chainlink Automation**:
 
@@ -691,6 +870,24 @@ forge script script/DeployRaffle.s.sol:DeployRaffle --rpc-url http://localhost:8
     - Chainlink Automation will call `performUpkeep()` when conditions are met
     - Winners will be selected and paid automatically
 
+### Troubleshooting
+
+**If funding fails with "ERC20: transfer amount exceeds balance"**:
+
+-   Ensure your deployment account has sufficient LINK tokens
+-   Get LINK from https://faucets.chain.link for Sepolia testnet
+-   Check your account balance before deployment
+
+**If keystore errors occur**:
+
+```bash
+# Create new keystore account
+cast wallet import myAccount --interactive
+
+# Or use existing account
+cast wallet list
+```
+
 ---
 
 ## Implementation Status
@@ -706,17 +903,19 @@ forge script script/DeployRaffle.s.sol:DeployRaffle --rpc-url http://localhost:8
 -   Winner tracking
 -   **Chainlink Automation integration (`checkUpKeep` + `performUpkeep`)**
 -   **Fully autonomous operation**
--   **Automated VRF subscription creation for deployment**
+-   **Automated VRF subscription creation**
+-   **Automated subscription funding with network-aware logic**
+-   **LINK token mock for local testing**
+-   **Standalone funding script for manual operations**
 -   Time-interval validation
+-   Getter functions for state inspection
 
 ### 🎯 Suggested Future Improvements
 
 ```solidity
-// Additional getter functions for frontend
-function getPlayer(uint256 index) external view returns (address);
+// Additional getter functions for enhanced frontend integration
 function getNumberOfPlayers() external view returns (uint256);
 function getRecentWinner() external view returns (address);
-function getRaffleState() external view returns (RaffleState);
 function getLastTimeStamp() external view returns (uint256);
 function getInterval() external view returns (uint256);
 ```
@@ -732,10 +931,24 @@ function getInterval() external view returns (uint256);
 5. Verify state transitions (OPEN ↔ CALCULATING)
 6. Test `checkUpKeep()` returns false when conditions not met
 7. Test `performUpkeep()` reverts with `UpkeepNotNeeded` when called prematurely
+8. Test automated subscription creation flow
+9. Test funding logic for both local and testnet environments
 
-**Integration Tests**: 8. Deploy to local Anvil and test full cycle with mocks 9. Verify VRF mock returns random numbers correctly 10. Test multiple raffle rounds with state resets 11. Test automated subscription creation flow
+**Integration Tests**:
 
-**Testnet Verification**: 12. Deploy to Sepolia testnet 13. Register with Chainlink Automation 14. Verify full automated cycle end-to-end
+10. Deploy to local Anvil and test full cycle with mocks
+11. Verify VRF mock returns random numbers correctly
+12. Test multiple raffle rounds with state resets
+13. Test LinkToken mock's `transferAndCall` function
+14. Verify subscription funding with correct amounts
+
+**Testnet Verification**:
+
+15. Deploy to Sepolia testnet with auto-creation
+16. Verify subscription is created and funded
+17. Add contract as consumer manually
+18. Register with Chainlink Automation
+19. Verify full automated cycle end-to-end
 
 **Test Commands**:
 
@@ -773,13 +986,62 @@ forge coverage
 | `Raffle__TransferFailed`             | Prize transfer failed | Winner contract rejected payment                         |
 | `Raffle__UpkeepNotNeeded`            | Cannot perform upkeep | Time not passed / No players / No balance / State locked |
 
+### Funding Methods by Network
+
+| Network       | Chain ID | Method                        | LINK Source                  |
+| ------------- | -------- | ----------------------------- | ---------------------------- |
+| Local (Anvil) | 31337    | VRF Mock `fundSubscription()` | Mock LinkToken               |
+| Sepolia       | 11155111 | LINK `transferAndCall()`      | Real LINK (0x779877A7B0D...) |
+| Mainnet       | 1        | LINK `transferAndCall()`      | Real LINK                    |
+
 ### Automation Checklist
 
--   [ ] VRF subscription created (manually or auto-created)
--   [ ] Subscription funded with LINK tokens
--   [ ] Contract deployed successfully
--   [ ] Contract added as VRF consumer
+-   [ ] Dependencies installed (Chainlink + Solmate)
+-   [ ] Environment variables configured (.env)
+-   [ ] Keystore account created and funded with ETH/LINK
+-   [ ] Contract deployed (subscription auto-created if needed)
+-   [ ] Subscription automatically funded with 3 LINK
+-   [ ] Contract manually added as VRF consumer
 -   [ ] Chainlink Automation upkeep registered
 -   [ ] Automation upkeep funded with LINK
 -   [ ] Test entry and verify participants tracking
 -   [ ] Verify automated winner selection on testnet
+
+### Key Files Structure
+
+```
+foundry_lottery/
+├── src/
+│   └── Raffle.sol                    # Main lottery contract
+├── script/
+│   ├── DeployRaffle.s.sol           # Deployment with auto-funding
+│   ├── HelperConfig.s.sol           # Network configurations
+│   └── Interactions.s.sol           # Subscription management
+├── test/
+│   ├── unit/
+│   │   └── RaffleTest.t.sol         # Unit tests
+│   └── mocks/
+│       └── LinkToken.sol             # LINK token mock (ERC677)
+├── lib/
+│   ├── chainlink/                    # Chainlink contracts
+│   └── solmate/                      # Solmate (ERC20 base)
+├── foundry.toml                      # Foundry config with remappings
+└── .env                              # Environment variables
+
+```
+
+---
+
+## Summary
+
+This Raffle contract provides a complete, production-ready decentralized lottery solution with:
+
+✅ **Provably Fair Randomness**: Chainlink VRF ensures tamper-proof winner selection  
+✅ **Full Automation**: Chainlink Automation handles periodic draws autonomously  
+✅ **Automated Deployment**: Scripts handle subscription creation and funding  
+✅ **Network Flexibility**: Works on local Anvil, Sepolia testnet, and mainnet  
+✅ **Security First**: State locking, CEI pattern, and comprehensive validation  
+✅ **Developer Friendly**: Clear errors, detailed logging, and complete documentation  
+✅ **Gas Optimized**: Custom errors and efficient state management
+
+The contract is ready for deployment and requires minimal manual intervention - just deploy, add as consumer, and register with Automation. The lottery will run continuously, selecting winners fairly and automatically.
