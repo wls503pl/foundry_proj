@@ -68,6 +68,17 @@ contract AddConsumer is Script {
 +]
 ```
 
+### Fuzz Testing Configuration
+
+**File**: `foundry.toml`
+
+```diff
++[fuzz]
++runs = 1024
+```
+
+**Purpose**: Sets number of random inputs generated per fuzz test (default: 256).
+
 **Required Dependency**:
 
 ```bash
@@ -93,10 +104,11 @@ forge install Cyfrin/foundry-devops@0.2.2 --no-commit
 
 ## Enhanced Testing
 
-### Import Addition
+### Import Additions
 
 ```diff
 +import {Vm} from "forge-std/Vm.sol";
++import {VRFCoordinatorV2_5Mock} from "@chainlink/contracts/src/v0.8/vrf/mocks/VRFCoordinatorV2_5Mock.sol";
 ```
 
 ### New Tests
@@ -174,6 +186,19 @@ function testPerformUpkeepUpdatesRaffleStateAndEmitsRequestId() public raffleEnt
 }
 ```
 
+**6. FulfillRandomWords - Fuzz Test**
+
+```solidity
+function testFulfillrandomWordsCanOnlyBeCalledAfterPerformUpkeep(uint256 randomRequestId)
+    public raffleEntered
+{
+    vm.expectRevert(VRFCoordinatorV2_5Mock.InvalidRequest.selector);
+    VRFCoordinatorV2_5Mock(vrfCoordinator).fulfillRandomWords(randomRequestId, address(raffle));
+}
+```
+
+**Purpose**: Tests that `fulfillRandomWords()` reverts for all invalid request IDs. Foundry automatically runs this test 1024 times with different `randomRequestId` values.
+
 ### Test Modifier
 
 ```solidity
@@ -187,6 +212,42 @@ modifier raffleEntered() {
 ```
 
 **Purpose**: Reduces code duplication for common test setup.
+
+---
+
+## Fuzz Testing
+
+### How It Works
+
+Add a parameter to the test function:
+
+```solidity
+function testSomething(uint256 randomValue) public {
+    // Foundry generates random values for randomValue
+}
+```
+
+Foundry automatically:
+
+-   Generates 1024 different values (configured in `foundry.toml`)
+-   Runs the test with each value
+-   Tries to find inputs that break the test
+
+### Run with Verbosity
+
+```bash
+forge test --match-test testFulfillrandomWords -vvv
+```
+
+**Output**:
+
+```
+[PASS] testFulfillrandomWordsCanOnlyBeCalledAfterPerformUpkeep(uint256) (runs: 1024, μ: 25841, ~: 25841)
+```
+
+-   `runs: 1024`: Tested with 1024 random inputs
+-   `μ`: Average gas used
+-   `~`: Median gas used
 
 ---
 
