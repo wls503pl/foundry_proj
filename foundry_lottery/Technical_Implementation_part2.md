@@ -6,30 +6,11 @@
 
 ## Overview
 
-This document analyzes recent improvements to the deployment automation system, focusing on bug fixes and the addition of automated consumer registration.
+This document analyzes recent improvements to the deployment automation system, focusing on automated consumer registration and enhanced testing.
 
 ---
 
-## Bug Fix: CreateSubscription Broadcast Error
-
-### The Issue
-
-**File**: `script/Interactions.s.sol`
-
-```diff
- vm.startBroadcast();
- uint256 subId = VRFCoordinatorV2_5Mock(vrfCoordinator).createSubscription();
--vm.startBroadcast();  // ❌ Duplicate call
-+vm.stopBroadcast();   // ✅ Correct pairing
-```
-
-**Error**: "broadcast is active already"
-
-**Fix**: Changed to `vm.stopBroadcast()` to properly close the broadcast context.
-
----
-
-## New Feature: Automated Consumer Registration
+## Automated Consumer Registration
 
 ### AddConsumer Contract
 
@@ -37,84 +18,55 @@ This document analyzes recent improvements to the deployment automation system, 
 
 ```solidity
 contract AddConsumer is Script {
-    function addConsumer(
-        address contractToAddtoVrf,
-        address vrfCoordinator,
-        uint256 subId
-    ) public {
-        console2.log("Adding consumer contract: ", contractToAddtoVrf);
+    function addConsumer(address contractToAddtoVrf, address vrfCoordinator, uint256 subId) public {
         vm.startBroadcast();
         VRFCoordinatorV2_5Mock(vrfCoordinator).addConsumer(subId, contractToAddtoVrf);
         vm.stopBroadcast();
     }
 
     function run() external {
-        address mostRecentlyDeployed = DevOpsTools.get_most_recent_deployment(
-            "Raffle", block.chainid
-        );
+        address mostRecentlyDeployed = DevOpsTools.get_most_recent_deployment("Raffle", block.chainid);
         addConsumerUsingConfig(mostRecentlyDeployed);
     }
 }
 ```
 
-**Purpose**: Automatically adds deployed contract as VRF consumer, eliminating manual UI steps.
+**Purpose**: Automatically adds deployed contract as VRF consumer.
 
-**Mechanism**: Uses `DevOpsTools.get_most_recent_deployment()` to find the deployed contract address from broadcast artifacts.
+**Mechanism**: Uses `DevOpsTools.get_most_recent_deployment()` to find deployed contract address.
 
-### Integration into Deployment
+### Integration
 
 **File**: `script/DeployRaffle.s.sol`
 
 ```diff
 +import {CreateSubscription, FundSubscription, AddConsumer} from "script/Interactions.s.sol";
 
- vm.startBroadcast();
- Raffle raffle = new Raffle(...);
- vm.stopBroadcast();
-
 +AddConsumer addConsumer = new AddConsumer();
 +addConsumer.addConsumer(address(raffle), config.vrfCoordinator, config.subscriptionId);
-
- return (raffle, helperConfig);
 ```
 
-### FundSubscription Refactor
-
-**File**: `script/DeployRaffle.s.sol`
+**File**: `script/DeployRaffle.s.sol` - FundSubscription
 
 ```diff
- if (config.subscriptionId == 0) {
-     CreateSubscription createSubscription = new CreateSubscription();
-     (config.subscriptionId, config.vrfCoordinator) =
-         createSubscription.createSubscription(config.vrfCoordinator);
-
-+    FundSubscription fundSubscription = new FundSubscription();
-+    fundSubscription.fundSubscription(
-+        config.vrfCoordinator,
-+        config.subscriptionId,
-+        config.link
-+    );
- }
++FundSubscription fundSubscription = new FundSubscription();
++fundSubscription.fundSubscription(config.vrfCoordinator, config.subscriptionId, config.link);
 ```
 
 ---
 
-## Configuration: File System Permissions
+## Configuration
+
+### File System Permissions
 
 **File**: `foundry.toml`
 
 ```diff
- remappings = [
-     "@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/",
-     "@solmate=lib/solmate/src",
- ]
 +fs_permissions = [
 +    { access = "read", path = "./broadcast" },
 +    { access = "read", path = "./reports" },
 +]
 ```
-
-**Purpose**: Allows `DevOpsTools` to read deployment artifacts.
 
 **Required Dependency**:
 
@@ -124,26 +76,43 @@ forge install Cyfrin/foundry-devops@0.2.2 --no-commit
 
 ---
 
+## New Event
+
+**File**: `src/Raffle.sol`
+
+```diff
++event RequestedRaffleWinner(uint256 indexed requestId);
+
+ uint256 requestId = s_vrfCoordinator.requestRandomWords(request);
++emit RequestedRaffleWinner(requestId);
+```
+
+**Purpose**: Emits VRF request ID for tracking and testing.
+
+---
+
 ## Enhanced Testing
 
-**File**: `test/unit/RaffleTest.t.sol`
+### Import Addition
 
-### Test: No Balance Condition
+```diff
++import {Vm} from "forge-std/Vm.sol";
+```
+
+### New Tests
+
+**1. CheckUpKeep - No Balance**
 
 ```solidity
 function testCheckUpkeepReturnsFalseIfItHasNoBalance() public {
     vm.warp(block.timestamp + interval + 1);
     vm.roll(block.number + 1);
-
-    (bool upkeepNeeded, ) = raffle.checkUpKeep("");
-
+    (bool upkeepNeeded,) = raffle.checkUpKeep("");
     assert(!upkeepNeeded);
 }
 ```
 
-Verifies `checkUpKeep()` returns `false` when contract has no balance.
-
-### Test: Raffle State Condition
+**2. CheckUpKeep - Wrong State**
 
 ```solidity
 function testCheckUpkeepReturnsFalseIfRaffleIsntOpen() public {
@@ -153,159 +122,144 @@ function testCheckUpkeepReturnsFalseIfRaffleIsntOpen() public {
     vm.roll(block.number + 1);
     raffle.performUpkeep("");
 
-    (bool upkeepNeeded, ) = raffle.checkUpKeep("");
-
+    (bool upkeepNeeded,) = raffle.checkUpKeep("");
     assert(!upkeepNeeded);
 }
 ```
 
-Verifies `checkUpKeep()` returns `false` when raffle is in `CALCULATING` state.
+**3. PerformUpkeep - Success**
+
+```solidity
+function testPerformUpkeepCanOnlyRunIfCheckUpkeepIsTrue() public {
+    vm.prank(PLAYER);
+    raffle.enterRaffle{value: entranceFee}();
+    vm.warp(block.timestamp + interval + 1);
+    vm.roll(block.number + 1);
+    raffle.performUpkeep("");
+}
+```
+
+**4. PerformUpkeep - Revert**
+
+```solidity
+function testPerformUpkeepRevertsIfCheckUpkeepIsFalse() public {
+    uint256 currentBalance = 0;
+    uint256 numPlayers = 0;
+    Raffle.RaffleState rState = raffle.getRaffleState();
+
+    vm.prank(PLAYER);
+    raffle.enterRaffle{value: entranceFee}();
+    currentBalance = currentBalance + entranceFee;
+    numPlayers = 1;
+
+    vm.expectRevert(
+        abi.encodeWithSelector(Raffle.Raffle__UpkeepNotNeeded.selector, currentBalance, numPlayers, rState)
+    );
+    raffle.performUpkeep("");
+}
+```
+
+**5. PerformUpkeep - Event and State**
+
+```solidity
+function testPerformUpkeepUpdatesRaffleStateAndEmitsRequestId() public raffleEntered {
+    vm.recordLogs();
+    raffle.performUpkeep("");
+    Vm.Log[] memory entries = vm.getRecordedLogs();
+    bytes32 requestId = entries[1].topics[1];
+
+    Raffle.RaffleState raffleState = raffle.getRaffleState();
+    assert(uint256(requestId) > 0);
+    assert(uint256(raffleState) == 1);
+}
+```
+
+### Test Modifier
+
+```solidity
+modifier raffleEntered() {
+    vm.prank(PLAYER);
+    raffle.enterRaffle{value: entranceFee}();
+    vm.warp(block.timestamp + interval + 1);
+    vm.roll(block.number + 1);
+    _;
+}
+```
+
+**Purpose**: Reduces code duplication for common test setup.
 
 ---
 
-## Deployment Workflow
+## Technical Details
 
-### Automated Flow
-
-```
-Deploy Command
-    ↓
-Check subscriptionId == 0?
-    ↓
-[YES] → CreateSubscription
-    ↓
-FundSubscription (3 LINK)
-    ↓
-Deploy Raffle Contract
-    ↓
-AddConsumer (automated)
-    ↓
-Ready (Manual: Register Automation)
-```
-
-### Automation Status
-
-| Step                | Status                  |
-| ------------------- | ----------------------- |
-| Create Subscription | ✅ Automated            |
-| Fund Subscription   | ✅ Automated            |
-| Deploy Contract     | ✅ Automated            |
-| Add Consumer        | ✅ Automated            |
-| Register Automation | ⚠️ Manual (UI required) |
-
----
-
-## Deployment Commands
-
-### Prerequisites
-
-```bash
-forge install Cyfrin/foundry-devops@0.2.2 --no-commit
-cast wallet import myAccount --interactive
-```
-
-### Deploy to Sepolia
-
-```bash
-forge script script/DeployRaffle.s.sol:DeployRaffle \
-  --rpc-url $SEPOLIA_RPC_URL \
-  --account myAccount \
-  --broadcast \
-  --verify
-```
-
-**Post-deployment**: Register Chainlink Automation at https://automation.chain.link/
-
-### Deploy to Anvil
-
-```bash
-# Terminal 1
-anvil
-
-# Terminal 2
-forge script script/DeployRaffle.s.sol:DeployRaffle \
-  --rpc-url http://localhost:8545 \
-  --broadcast
-```
-
----
-
-## Technical Implementation
-
-### DevOpsTools Address Discovery
+### DevOpsTools Discovery
 
 ```solidity
 DevOpsTools.get_most_recent_deployment("Raffle", block.chainid)
 ```
 
-**Process**:
+Reads `./broadcast/DeployRaffle.s.sol/{chainId}/run-latest.json` to find deployed address.
 
-1. Reads `./broadcast/DeployRaffle.s.sol/{chainId}/run-latest.json`
-2. Finds most recent `CREATE` transaction for "Raffle"
-3. Returns deployed contract address
-4. Used by `AddConsumer` for automatic registration
-
-### Network-Aware Funding
-
-**File**: `script/Interactions.s.sol`
+### Event Recording
 
 ```solidity
-if (block.chainid == LOCAL_CHAIN_ID) {
-    // Local: Direct mock funding
-    VRFCoordinatorV2_5Mock(vrfCoordinator).fundSubscription(
-        subscriptionId, FUND_AMOUNT
-    );
-} else {
-    // Testnet/Mainnet: LINK token transfer
-    LinkToken(linkToken).transferAndCall(
-        vrfCoordinator, FUND_AMOUNT, abi.encode(subscriptionId)
-    );
-}
+vm.recordLogs();
+raffle.performUpkeep("");
+Vm.Log[] memory entries = vm.getRecordedLogs();
+bytes32 requestId = entries[1].topics[1];
 ```
+
+-   `entries[0]`: VRF coordinator event
+-   `entries[1]`: RequestedRaffleWinner event
+-   `topics[1]`: requestId parameter
+
+---
+
+## Deployment
+
+### Commands
+
+```bash
+# Prerequisites
+forge install Cyfrin/foundry-devops@0.2.2 --no-commit
+
+# Deploy to Sepolia
+forge script script/DeployRaffle.s.sol:DeployRaffle \
+  --rpc-url $SEPOLIA_RPC_URL \
+  --account myAccount \
+  --broadcast \
+  --verify
+
+# Deploy to Anvil
+anvil
+forge script script/DeployRaffle.s.sol:DeployRaffle \
+  --rpc-url http://localhost:8545 \
+  --broadcast
+```
+
+### Automation Status
+
+| Step                | Status       |
+| ------------------- | ------------ |
+| Create Subscription | ✅ Automated |
+| Fund Subscription   | ✅ Automated |
+| Deploy Contract     | ✅ Automated |
+| Add Consumer        | ✅ Automated |
+| Register Automation | ⚠️ Manual    |
 
 ---
 
 ## Troubleshooting
 
-### "broadcast is active already"
-
-**Solution**: The bug has been fixed. Update your code to use `vm.stopBroadcast()`.
-
-### "No deployment found for contract 'Raffle'"
-
-**Cause**: Missing deployment artifacts
-
-**Solution**:
+**"No deployment found for contract 'Raffle'"**
 
 ```bash
 ls -la broadcast/DeployRaffle.s.sol/*/
 forge script script/DeployRaffle.s.sol:DeployRaffle --broadcast
 ```
 
-### "Access to path './broadcast' denied"
-
-**Solution**: Add to `foundry.toml`:
+**"Access to path './broadcast' denied"**
 
 ```toml
-fs_permissions = [
-    { access = "read", path = "./broadcast" },
-]
+fs_permissions = [{ access = "read", path = "./broadcast" }]
 ```
-
----
-
-## Summary
-
-### Key Changes
-
-| Component          | Change                  | Impact              |
-| ------------------ | ----------------------- | ------------------- |
-| CreateSubscription | Fixed broadcast pairing | Reliable execution  |
-| AddConsumer        | New automated contract  | No manual UI steps  |
-| DeployRaffle       | Integrated AddConsumer  | Full automation     |
-| foundry.toml       | Added fs_permissions    | DevOpsTools support |
-| RaffleTest         | Added checkUpKeep tests | Better coverage     |
-
-### Result
-
-Single-command deployment with only Chainlink Automation registration requiring manual action (due to UI-only interface for LINK funding and upkeep configuration).

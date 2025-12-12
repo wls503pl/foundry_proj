@@ -49,8 +49,7 @@ contract FundSubscription is Script, CodeConstants {
         console2.log("Using vrfCoordinator: ", vrfCoordinator);
         console2.log("On ChainId: ", block.chainid);
 
-        if (block.chainid == LOCAL_CHAIN_ID)
-        {
+        if (block.chainid == LOCAL_CHAIN_ID) {
             vm.startBroadcast();
             VRFCoordinatorV2_5Mock(vrfCoordinator).fundSubscription(subscriptionId, FUND_AMOUNT);
             vm.stopBroadcast();
