@@ -60,9 +60,9 @@ contract HelperConfig is CodeConstants, Script {
             gasLane: 0x787d74caea10b2b357790d5b5247c2f63d1d91572a9846f780606e4d953677ae,
             callbackGasLimit: 500000,
             // If a subscription ID hasn't been created yet, the script will automatically create one.
-            subscriptionId: 0,// Real subscription id: 58698234741130990678468548486526014188885840169268183507871542308641305225193
+            subscriptionId: 58698234741130990678468548486526014188885840169268183507871542308641305225193,
             link: 0x779877A7B0D9E8603169DdbD7836e478b4624789,
-            account: 0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38
+            account: 0x4f830F6BCB420f99e3b88DbaF3C496e0F60b5B66
         });
     }
 
@@ -87,7 +87,7 @@ contract HelperConfig is CodeConstants, Script {
             callbackGasLimit: 500000,
             subscriptionId: 0,
             link: address(linkToken),
-            account: 0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38
+            account: 0x4f830F6BCB420f99e3b88DbaF3C496e0F60b5B66
         });
         return localNetworkConfig;
     }
