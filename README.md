@@ -60,7 +60,7 @@ This repository contains three progressive projects that teach blockchain develo
 
 **Test Coverage**: ~85% lines, 9 comprehensive test cases
 
-[📖 Full Documentation](./foundry_fund_me/FoundryFundMeProject.md)
+[📖 Full Documentation](./foundry_fund_me/README.md)
 
 ---
 
