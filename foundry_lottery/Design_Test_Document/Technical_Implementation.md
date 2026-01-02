@@ -6,7 +6,7 @@
 **Version**: 1.3 (VRF + Chainlink Automation + Automated Funding)  
 **Solidity**: ^0.8.18  
 **License**: MIT  
-**Author**: Peile Wu (peile.wu.1990@gmail.com)
+**Author**: Peile Wu (<peile.wu.1990@gmail.com>)
 
 A fully automated decentralized lottery contract using Chainlink VRF 2.5 for provably fair random number generation and Chainlink Automation for autonomous operation.
 
@@ -16,14 +16,14 @@ A fully automated decentralized lottery contract using Chainlink VRF 2.5 for pro
 
 ### Creating a Subscription
 
-Visit https://docs.chain.link/vrf/v2-5/getting-started and click the subscription manager link to access https://vrf.chain.link/
+Visit <https://docs.chain.link/vrf/v2-5/getting-started> and click the subscription manager link to access <https://vrf.chain.link/>
 
 1. Click "Create Subscription" button
 2. Connect MetaMask wallet
 3. Complete the transaction to create subscription
 4. Add funds (Sepolia LINK or ETH)
 
-![Chainlink VRF Subscription](img/chainlink_vrf/chainlink_vrf_subscription.png)
+![Chainlink VRF Subscription](../img/chainlink_vrf/chainlink_vrf_subscription.png)
 
 ### Automated Subscription Creation
 
@@ -159,7 +159,7 @@ SEPOLIA_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY
 
 If using the default account causes errors:
 
-![Default Account Error](img/chainlink_vrf/default_account_error.png)
+![Default Account Error](../img/chainlink_vrf/default_account_error.png)
 
 Create a test account and import your private key:
 
@@ -181,13 +181,13 @@ forge script script/Interactions.s.sol:FundSubscription \
 
 **Successful Output**:
 
-![Fund Subscription Success](img/chainlink_vrf/fundsubscription_succeed.png)
+![Fund Subscription Success](../img/chainlink_vrf/fundsubscription_succeed.png)
 
 **Verify Subscription Balance**:
 
-After successful funding, check the subscription balance on https://vrf.chain.link/:
+After successful funding, check the subscription balance on <https://vrf.chain.link/>:
 
-![Subscription Balance Added](img/chainlink_vrf/subscription_balance_added.png)
+![Subscription Balance Added](../img/chainlink_vrf/subscription_balance_added.png)
 
 ### Adding Consumer Contract
 
@@ -195,11 +195,11 @@ After deploying the Raffle contract, add it as a consumer to your subscription.
 
 Click on the subscription ID to open the consumer management interface:
 
-![Subscription ID](img/chainlink_vrf/subscription_id.png)
+![Subscription ID](../img/chainlink_vrf/subscription_id.png)
 
 This opens the Add Consumer interface where you can add your deployed contract address:
 
-![Add Consumer Interface](img/chainlink_vrf/add_consumer_interface.png)
+![Add Consumer Interface](../img/chainlink_vrf/add_consumer_interface.png)
 
 ---
 
@@ -209,36 +209,36 @@ This opens the Add Consumer interface where you can add your deployed contract a
 
 To enable periodic, autonomous lottery draws without manual intervention, we use **Chainlink Automation** (formerly Chainlink Keepers). This allows the raffle to run continuously and automatically select winners at specified intervals.
 
-**Reference**: https://remix.ethereum.org/#url=https://docs.chain.link/samples/Automation/AutomationCounter.sol
+**Reference**: <https://remix.ethereum.org/#url=https://docs.chain.link/samples/Automation/AutomationCounter.sol>
 
 ### How It Works
 
 Chainlink Automation nodes continuously monitor your contract by calling `checkUpKeep()`. When all conditions are met, they automatically trigger `performUpkeep()` to execute the winner selection process.
 
-![Chainlink Keeper](img/chainlink_automation/chainlink_keeper.png)
+![Chainlink Keeper](../img/chainlink_automation/chainlink_keeper.png)
 
 ### Registration Process
 
-1. Visit https://automation.chain.link/
+1. Visit <https://automation.chain.link/>
 2. Connect your MetaMask wallet
 3. Click "Register New Upkeep"
 
-![Register New Upkeeper](img/chainlink_automation/register_newUpKeepper.png)
+![Register New Upkeeper](../img/chainlink_automation/register_newUpKeepper.png)
 
-4. Select trigger mechanism:
+1. Select trigger mechanism:
 
     - **Custom logic**: Uses your `checkUpKeep()` function (recommended for this contract)
     - **Time-based**: Runs at fixed intervals
     - **Log trigger**: Responds to emitted events
 
-5. Configure upkeep parameters:
+2. Configure upkeep parameters:
 
     - **Target contract address**: Your deployed Raffle contract address
     - **Upkeep name**: e.g., "Raffle Lottery Automation"
     - **Gas limit**: Recommended 500,000
     - **Starting balance**: Add LINK tokens to cover automation fees
 
-6. Fund the upkeep with LINK tokens
+3. Fund the upkeep with LINK tokens
 
 ### Integration Benefits
 
@@ -654,9 +654,9 @@ event WinnerPicked(address indexed winner);
 
 ### Request Parameters
 
-Reference: https://docs.chain.link/vrf/v2-5/getting-started#initializing-the-contract
+Reference: <https://docs.chain.link/vrf/v2-5/getting-started#initializing-the-contract>
 
-![VRF Implementation](img/chainlink_vrf/vrf_implementation.png)
+![VRF Implementation](../img/chainlink_vrf/vrf_implementation.png)
 
 -   **keyHash**: Identifies the gas lane (max gas price)
 -   **subId**: Links request to your funded subscription
@@ -844,20 +844,20 @@ The deployment process now includes automatic subscription creation and funding:
 4. **Deploy Contract**: Deploy Raffle with funded subscription
 5. **Add Consumer**: Manually add contract as consumer (required step)
 
-**Note**: Even with automated funding, you still need to manually add the deployed contract as a consumer to the subscription via https://vrf.chain.link/
+**Note**: Even with automated funding, you still need to manually add the deployed contract as a consumer to the subscription via <https://vrf.chain.link/>
 
 ### Post-Deployment Steps
 
 1. **Add VRF Consumer** (Required):
 
     - Copy deployed contract address from deployment output
-    - Go to https://vrf.chain.link/
+    - Go to <https://vrf.chain.link/>
     - Find your subscription (auto-created or existing)
     - Add contract address as consumer
 
 2. **Register Chainlink Automation**:
 
-    - Go to https://automation.chain.link/
+    - Go to <https://automation.chain.link/>
     - Click "Register New Upkeep"
     - Select "Custom logic" trigger
     - Enter your contract address
@@ -875,7 +875,7 @@ The deployment process now includes automatic subscription creation and funding:
 **If funding fails with "ERC20: transfer amount exceeds balance"**:
 
 -   Ensure your deployment account has sufficient LINK tokens
--   Get LINK from https://faucets.chain.link for Sepolia testnet
+-   Get LINK from <https://faucets.chain.link> for Sepolia testnet
 -   Check your account balance before deployment
 
 **If keystore errors occur**:
@@ -936,19 +936,19 @@ function getInterval() external view returns (uint256);
 
 **Integration Tests**:
 
-10. Deploy to local Anvil and test full cycle with mocks
-11. Verify VRF mock returns random numbers correctly
-12. Test multiple raffle rounds with state resets
-13. Test LinkToken mock's `transferAndCall` function
-14. Verify subscription funding with correct amounts
+1. Deploy to local Anvil and test full cycle with mocks
+2. Verify VRF mock returns random numbers correctly
+3. Test multiple raffle rounds with state resets
+4. Test LinkToken mock's `transferAndCall` function
+5. Verify subscription funding with correct amounts
 
 **Testnet Verification**:
 
-15. Deploy to Sepolia testnet with auto-creation
-16. Verify subscription is created and funded
-17. Add contract as consumer manually
-18. Register with Chainlink Automation
-19. Verify full automated cycle end-to-end
+1. Deploy to Sepolia testnet with auto-creation
+2. Verify subscription is created and funded
+3. Add contract as consumer manually
+4. Register with Chainlink Automation
+5. Verify full automated cycle end-to-end
 
 **Test Commands**:
 

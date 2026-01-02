@@ -64,11 +64,11 @@ make deploy-sepolia
 
 The deployment process will compile your contract and deploy it to Sepolia:
 
-![Deployment Process](img/deploy_onSepolia/deployLotteryOnChain.png)
+![Deployment Process](../img/deploy_onSepolia/deployLotteryOnChain.png)
 
 **Note**: Due to network conditions, the automatic verification may fail initially. Don't worry - we'll verify the contract manually in a later step.
 
-![Verification Failed](img/deploy_onSepolia/contract_verify_failed.png)
+![Verification Failed](../img/deploy_onSepolia/contract_verify_failed.png)
 
 ## Chainlink VRF Integration
 
@@ -92,11 +92,11 @@ Without VRF, lottery contracts would be vulnerable to manipulation, as standard 
 
 4. After creating the subscription, add funds (either Sepolia LINK or ETH tokens)
 
-![Subscription Created](img/deploy_onSepolia/subscription_id.png)
+![Subscription Created](../img/deploy_onSepolia/subscription_id.png)
 
-5. The contract deployment script automatically adds your lottery contract as a consumer. After deployment, you'll see the consumer address (which matches your deployed contract address):
+1. The contract deployment script automatically adds your lottery contract as a consumer. After deployment, you'll see the consumer address (which matches your deployed contract address):
 
-![Consumer Added](img/deploy_onSepolia/consumerAdded.png)
+![Consumer Added](../img/deploy_onSepolia/consumerAdded.png)
 
 ## Chainlink Automation Setup
 
@@ -117,23 +117,23 @@ Without automation, someone would need to manually trigger each lottery draw, cr
 
 2. Click **"Register new Upkeep"**
 
-![Register New Upkeep](img/deploy_onSepolia/register_new_upkeep.png)
+![Register New Upkeep](../img/deploy_onSepolia/register_new_upkeep.png)
 
-3. Select **"Custom logic"** trigger type
+1. Select **"Custom logic"** trigger type
 
-![Upkeep Step 1](img/deploy_onSepolia/register_new_upkeep_step1.png)
+![Upkeep Step 1](../img/deploy_onSepolia/register_new_upkeep_step1.png)
 
-4. Enter your deployed contract address
+1. Enter your deployed contract address
 
-![Upkeep Step 2](img/deploy_onSepolia/register_new_upkeep_step2.png)
+![Upkeep Step 2](../img/deploy_onSepolia/register_new_upkeep_step2.png)
 
-5. Provide a name for your Upkeep and set the initial funding balance. Sign the transaction with your wallet to complete registration.
+1. Provide a name for your Upkeep and set the initial funding balance. Sign the transaction with your wallet to complete registration.
 
-![Upkeep Step 3](img/deploy_onSepolia/register_new_upkeep_step3.png)
+![Upkeep Step 3](../img/deploy_onSepolia/register_new_upkeep_step3.png)
 
-6. After registration, you can view your Upkeep details on the dashboard
+1. After registration, you can view your Upkeep details on the dashboard
 
-![Upkeep Registered](img/deploy_onSepolia/upkeep_registered.png)
+![Upkeep Registered](../img/deploy_onSepolia/upkeep_registered.png)
 
 ## Manual Contract Verification
 
@@ -160,13 +160,13 @@ Replace `0x252b3d6C1dd4881b6bb046c41b84fa433986615f` with your actual deployed c
 3. Fill in the contract details and select "Solidity (Standard-Json-Input)" as the verification method
 4. Upload the generated `contract_verify.json` file
 
-![Verify Using JSON](img/deploy_onSepolia/verifyContractUsingJson.png)
+![Verify Using JSON](../img/deploy_onSepolia/verifyContractUsingJson.png)
 
 ### Verification Success
 
 Once the verification completes, your contract will be verified and publicly viewable:
 
-![Contract Verified](img/deploy_onSepolia/contract_verified.png)
+![Contract Verified](../img/deploy_onSepolia/contract_verified.png)
 
 ## Summary
 

@@ -451,7 +451,7 @@ forge test --match-path test/integration/InteractionsTest.t.sol \
 
 Integration tests provide comprehensive coverage of the deployment and interaction scripts:
 
-![Integration Test Coverage](img/integrated_test/integrationTest_coverage.png)
+![Integration Test Coverage](../img/integrated_test/integrationTest_coverage.png)
 
 **Key Metrics**:
 
